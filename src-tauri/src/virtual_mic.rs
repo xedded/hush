@@ -40,44 +40,18 @@ pub enum Outcome {
 #[cfg(windows)]
 mod imp {
     use super::*;
-    use anyhow::{anyhow, Context, Result};
+    use anyhow::{anyhow, Result};
     use windows::core::PWSTR;
     use windows::Win32::Devices::FunctionDiscovery::{PKEY_DeviceInterface_FriendlyName, PKEY_Device_DeviceDesc};
     use windows::Win32::Foundation::PROPERTYKEY;
-    use windows::Win32::Media::Audio::{eCapture, IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, DEVICE_STATE_ACTIVE};
-    use windows::Win32::System::Com::StructuredStorage::{PropVariantClear, PropVariantToStringAlloc, PROPVARIANT};
-    use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
-        STGM_READWRITE,
-    };
+    use windows::Win32::Media::Audio::{eCapture, IMMDevice, DEVICE_STATE_ACTIVE};
+    use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
+    use windows::Win32::System::Com::{STGM_READ, STGM_READWRITE};
+
     use windows::Win32::System::Variant::VT_LPWSTR;
     use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 
-    struct Com;
-    impl Com {
-        fn init() -> Result<Self> {
-            unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }.ok().context("COM init")?;
-            Ok(Com)
-        }
-    }
-    impl Drop for Com {
-        fn drop(&mut self) {
-            unsafe { CoUninitialize() };
-        }
-    }
-
-    fn read_string(store: &IPropertyStore, key: &PROPERTYKEY) -> Option<String> {
-        unsafe {
-            let mut value: PROPVARIANT = store.GetValue(key).ok()?;
-            let text = PropVariantToStringAlloc(&value).ok().map(|p| {
-                let s = p.to_string().unwrap_or_default();
-                CoTaskMemFree(Some(p.0 as _));
-                s
-            });
-            let _ = PropVariantClear(&mut value);
-            text
-        }
-    }
+    use crate::win_endpoint::{enumerator, read_string, Com};
 
     fn write_string(store: &IPropertyStore, key: &PROPERTYKEY, text: &str) -> Result<()> {
         let mut wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
@@ -96,8 +70,7 @@ mod imp {
     /// The VB-Cable recording endpoint, whether or not it was renamed already.
     fn find_cable_capture() -> Result<Option<IMMDevice>> {
         unsafe {
-            let enumerator: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
-            let devices = enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
+            let devices = enumerator()?.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE)?;
             for i in 0..devices.GetCount()? {
                 let device = devices.Item(i)?;
                 let store = device.OpenPropertyStore(STGM_READ)?;

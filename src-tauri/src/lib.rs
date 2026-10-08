@@ -4,6 +4,8 @@ mod settings;
 mod state;
 mod tray;
 pub mod virtual_mic;
+#[cfg(windows)]
+mod win_endpoint;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -15,6 +17,8 @@ use state::AppState;
 const TELEMETRY_INTERVAL: Duration = Duration::from_millis(33);
 /// How often a stopped engine is retried, e.g. after the headset was unplugged.
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
+/// How often the virtual cable's install state is re-read.
+const MIC_CHECK_INTERVAL: Duration = Duration::from_secs(3);
 
 /// Push levels to the UI and restart the engine after device loss.
 fn spawn_monitor(app: AppHandle, state: Arc<AppState>) {
@@ -22,8 +26,19 @@ fn spawn_monitor(app: AppHandle, state: Arc<AppState>) {
         .name("hush-monitor".into())
         .spawn(move || {
             let mut last_retry = Instant::now();
+            let mut last_mic_check = Instant::now();
+            let mut mic_status = virtual_mic::status();
             loop {
                 std::thread::sleep(TELEMETRY_INTERVAL);
+                // Hide or show the setup panel as soon as the virtual cable appears or goes away.
+                if last_mic_check.elapsed() >= MIC_CHECK_INTERVAL {
+                    last_mic_check = Instant::now();
+                    let now = virtual_mic::status();
+                    if now != mic_status {
+                        mic_status = now;
+                        let _ = app.emit("state", state.ui_state());
+                    }
+                }
                 if state.reap_failed_engine() {
                     last_retry = Instant::now();
                     let _ = app.emit("state", state.ui_state());

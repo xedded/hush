@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
 use cpal::traits::{DeviceTrait, StreamTrait};
-use cpal::{Device, FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
+use cpal::{Device, ErrorKind, FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
 use df::tract::{DfParams, DfTract, RuntimeParams};
 use ndarray::{ArrayView2, ArrayViewMut2};
 use ringbuf::traits::{Consumer, Observer, Producer, Split};
@@ -170,19 +170,31 @@ fn setup(
     input_stream.play().context("Mikrofonen kunde inte startas.")?;
     output_stream.play().context("Den virtuella mikrofonen kunde inte startas.")?;
 
+    let input_id = input.id().map(|id| id.to_string()).unwrap_or_default();
     let info = EngineInfo {
-        input_id: input.id().map(|id| id.to_string()).unwrap_or_default(),
+        input_id: input_id.clone(),
         input_name: devices::input_display_name(&input),
         input_rate,
-        bluetooth_quality: input_rate <= 16_000,
+        bluetooth_quality: input_rate <= 16_000 || devices::is_bluetooth(&input, &input_id),
     };
     let running = Running { _input: input_stream, _output: output_stream, in_cons, out_prod, input_rate, output_rate, df };
     Ok((running, info))
 }
 
-fn report(failure: &Arc<Mutex<Option<String>>>, msg: String) {
+/// Glitches and route notices leave the stream running. Treating them as fatal
+/// made the engine restart every few seconds on Bluetooth headsets, which report
+/// an xrun when they switch to the hands-free profile.
+fn is_fatal(kind: ErrorKind) -> bool {
+    !matches!(kind, ErrorKind::Xrun | ErrorKind::RealtimeDenied | ErrorKind::DeviceChanged)
+}
+
+fn report(failure: &Arc<Mutex<Option<String>>>, err: &cpal::Error, msg: &str) {
+    if !is_fatal(err.kind()) {
+        log::debug!("ignored stream notice: {err}");
+        return;
+    }
     if let Ok(mut f) = failure.lock() {
-        f.get_or_insert(msg);
+        f.get_or_insert_with(|| format!("{msg} ({err})."));
     }
 }
 
@@ -224,7 +236,7 @@ where
             // If the processing thread falls behind, newest samples are dropped.
             prod.push_iter(mono);
         },
-        move |e| report(&failure, format!("Mikrofonen kopplades bort ({e}).")),
+        move |e| report(&failure, &e, "Mikrofonen kopplades bort"),
         None,
     )
     .context("Mikrofonen kunde inte öppnas.")
@@ -249,7 +261,7 @@ fn build_output(
                 frame.fill(s);
             }
         },
-        move |e| report(&failure, format!("Den virtuella mikrofonen slutade svara ({e}).")),
+        move |e| report(&failure, &e, "Den virtuella mikrofonen slutade svara"),
         None,
     )
     .context("Den virtuella mikrofonen kunde inte öppnas.")
@@ -338,6 +350,29 @@ mod tests {
 
     fn energy(x: &[f32]) -> f32 {
         x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32
+    }
+
+    /// Manual soak test on real hardware: `HUSH_TEST_MIC=Elite cargo test --lib engine_survives -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn engine_survives_on_named_microphone() {
+        let wanted = std::env::var("HUSH_TEST_MIC").expect("set HUSH_TEST_MIC to part of a device name");
+        let mic = devices::list_inputs().into_iter().find(|i| i.name.contains(&wanted)).expect("microphone not found");
+        let params = Arc::new(Params::new(true, crate::audio::params::Mode::Noise, 72.0, -42.0));
+        let engine = Engine::start(Some(mic.id), params, Arc::new(Telemetry::default())).expect("engine starts");
+        println!("running on {} (bluetooth: {})", engine.info().input_name, engine.info().bluetooth_quality);
+        for second in 1..=15 {
+            std::thread::sleep(Duration::from_secs(1));
+            assert_eq!(engine.failure(), None, "engine failed after {second} s");
+        }
+    }
+
+    #[test]
+    fn only_real_failures_stop_the_engine() {
+        assert!(!is_fatal(ErrorKind::Xrun));
+        assert!(!is_fatal(ErrorKind::DeviceChanged));
+        assert!(is_fatal(ErrorKind::DeviceNotAvailable));
+        assert!(is_fatal(ErrorKind::StreamInvalidated));
     }
 
     #[test]

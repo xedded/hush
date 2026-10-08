@@ -71,15 +71,12 @@ pub fn list_inputs() -> Vec<InputInfo> {
                 return None;
             }
             let id = d.id().ok()?;
-            let bluetooth = d
-                .description()
-                .map(|desc| desc.interface_type() == InterfaceType::Bluetooth)
-                .unwrap_or(false);
+            let id_text = id.to_string();
             Some(InputInfo {
                 is_default: default_id.as_ref() == Some(&id),
-                id: id.to_string(),
+                bluetooth: is_bluetooth(&d, &id_text),
+                id: id_text,
                 name: display_name(&name),
-                bluetooth,
             })
         })
         .collect();
@@ -114,6 +111,22 @@ pub fn input_display_name(d: &Device) -> String {
     display_name(&device_name(d))
 }
 
+/// Bluetooth microphones switch the headset to the hands-free profile: telephone
+/// quality for both directions. cpal often reports their interface as unknown on
+/// Windows, so Windows is asked as well.
+pub fn is_bluetooth(d: &Device, id: &str) -> bool {
+    let by_cpal = d.description().map(|desc| desc.interface_type() == InterfaceType::Bluetooth).unwrap_or(false);
+    #[cfg(windows)]
+    {
+        by_cpal || crate::win_endpoint::is_bluetooth(id)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = id;
+        by_cpal
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,6 +137,15 @@ mod tests {
         assert_eq!(display_name("Headset Microphone (Jabra Evolve2 65)"), "Jabra Evolve2 65");
         assert_eq!(display_name("Plain Mic"), "Plain Mic");
         assert_eq!(display_name("(Odd)"), "(Odd)");
+    }
+
+    /// Manual check against the real devices: `cargo test --lib print_inputs -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn print_inputs() {
+        for i in list_inputs() {
+            println!("{:<50} bluetooth={} default={}", i.name, i.bluetooth, i.is_default);
+        }
     }
 
     #[test]
