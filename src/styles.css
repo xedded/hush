@@ -248,3 +248,10 @@ main { overflow-y: auto; }
 /* macOS: the window keeps its native traffic-light buttons at the top left. */
 [data-platform="macos"] .winctl { display: none; }
 [data-platform="macos"] .titlebar { padding-left: 84px; }
+.enroll { padding: 16px; display: flex; flex-direction: column; gap: 12px; border-color: var(--accent); }
+.enroll-head, .enroll-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.enroll-head strong { font-weight: 500; }
+.enroll-text { margin: 0; font-size: 15px; line-height: 1.6; max-width: 70ch; }
+.progress { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.voice .who-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

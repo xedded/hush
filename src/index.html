@@ -95,7 +95,7 @@
             <button aria-pressed="true" data-mode="noise">Dämpa bakgrundsljud</button>
             <button aria-pressed="false" data-mode="me">Bara min röst</button>
           </div>
-          <div class="hint" id="meHint" hidden><span>Röstigenkänning kommer i nästa version. Till dess fungerar läget som Dämpa bakgrundsljud.</span></div>
+          <div class="hint" id="meHint" hidden><span>Spela in din röstprofil under Röster för att använda läget. Till dess fungerar det som Dämpa bakgrundsljud.</span></div>
         </div>
 
         <div class="controls">
@@ -120,16 +120,39 @@
           <div>
             <h1>Röster</h1>
             <p class="sub">Röster som Hush har hört i det här mötet. Stäng av en röst för att hålla den utanför mikrofonen.</p>
-            <p class="preview-note">Förhandsvisning. Röstigenkänning är inte aktiv ännu.</p>
           </div>
-          <button class="btn" id="enroll">
+          <button class="btn" id="enroll" hidden>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5"/><path d="M3 8a5 5 0 0010 0M8 13v1.8" stroke-linecap="round"/></svg>
             Spela in din röstprofil igen
           </button>
         </div>
 
-        <div class="panel">
+        <div class="notice" id="voicesError" hidden><span id="voicesErrorText"></span></div>
+
+        <div class="panel setup" id="enrollIntro" hidden>
+          <div class="setup-text">
+            <strong>Spela in din röstprofil</strong>
+            <p>Hush behöver ungefär 30 sekunder av din röst för att kunna skilja den från andras. Röstprofilen sparas krypterat på den här datorn.</p>
+          </div>
+          <button class="btn primary" id="enrollStart">Spela in</button>
+        </div>
+
+        <div class="panel enroll" id="enrollPanel" hidden>
+          <div class="enroll-head">
+            <strong>Läs texten högt i normal samtalston</strong>
+            <span class="kbd" id="enrollCount"></span>
+          </div>
+          <p class="enroll-text">Hej, nu spelar jag in min röst så att Hush kan känna igen den. Jag pratar som jag brukar göra i ett möte, varken högre eller tystare. I dag ska vi gå igenom veckans siffror, bestämma vem som tar nästa kundmöte och se över planen för hösten. Om någon har frågor kan vi ta dem på slutet. Jag läser vidare tills mätaren är full, och om texten tar slut börjar jag bara om från början.</p>
+          <div class="progress" role="progressbar" aria-label="Inspelning" aria-valuemin="0" aria-valuemax="100"><i id="enrollBar"></i></div>
+          <div class="enroll-foot">
+            <span class="sub" style="margin:0;font-size:12px">Hush räknar bara tid då du pratar. Pauser gör inget.</span>
+            <button class="btn" id="enrollCancel">Avbryt</button>
+          </div>
+        </div>
+
+        <div class="panel" id="sessionPanel" hidden>
           <div class="voices" id="voiceList"></div>
+          <div class="list-row" id="sessionEmpty" hidden><div style="color:var(--muted)">Ingen annan har pratat i det här mötet än.</div></div>
           <div class="timescale"><div><span>-20 s</span><span>-10 s</span><span>nu</span></div></div>
           <div class="voices-foot">
             <div style="display:flex;flex-direction:column;gap:8px">
@@ -139,7 +162,7 @@
                 <button aria-pressed="true" data-u="mute">Stäng av</button>
               </div>
             </div>
-            <p class="sub" style="margin:0;max-width:44ch;font-size:12px">En ny röst behöver ungefär en sekund tal innan den känns igen. Under tiden gäller valet till vänster.</p>
+            <p class="sub" style="margin:0;max-width:46ch;font-size:12px">En röst känns igen efter ungefär en halv sekund tal, en helt ny röst efter ett par sekunder. Under tiden gäller valet till vänster, utom precis när du själv har pratat.</p>
           </div>
         </div>
 
@@ -205,6 +228,7 @@
               <button aria-pressed="false" data-t="dark">Mörkt</button>
             </div>
           </div>
+          <div class="list-row"><div>Tredjepart<p>Brusreducering: DeepFilterNet (MIT/Apache-2.0). Röstigenkänning: WeSpeaker CAM++, tränad på VoxCeleb (CC BY 4.0).</p></div></div>
           <div class="list-row"><div>Version<p id="version">Hush 0.1.0</p></div><button class="btn">Sök efter uppdatering</button></div>
         </div>
       </section>
@@ -213,5 +237,6 @@
 </div>
 <div class="toast" id="toast" hidden></div>
 <script src="app.js"></script>
+<script src="voices.js"></script>
 </body>
 </html>

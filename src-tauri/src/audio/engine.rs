@@ -24,6 +24,7 @@ use super::gate::Gate;
 use super::params::Params;
 use super::resample::Resampler;
 use super::telemetry::Telemetry;
+use crate::speaker::service::{downsample_48k, Hop, Link};
 
 pub const ENGINE_RATE: u32 = 48_000;
 /// Silence queued ahead of the output to absorb scheduling jitter.
@@ -34,6 +35,9 @@ const RING_SECONDS: usize = 1;
 const IDLE_WAIT: Duration = Duration::from_millis(2);
 /// Typical WASAPI shared-mode period on each side.
 const DEVICE_PERIOD_MS: f32 = 10.0;
+/// Gain for a speaker who should not pass (-40 dB), and how fast it fades in or out.
+const SPEAKER_FLOOR: f32 = 0.01;
+const SPEAKER_FADE_MS: f32 = 20.0;
 
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,7 +58,12 @@ pub struct Engine {
 impl Engine {
     /// Start the engine on the given input (or the default microphone).
     /// Blocks until the model is loaded and both streams run, or fails.
-    pub fn start(input_id: Option<String>, params: Arc<Params>, telemetry: Arc<Telemetry>) -> Result<Self> {
+    pub fn start(
+        input_id: Option<String>,
+        params: Arc<Params>,
+        telemetry: Arc<Telemetry>,
+        speaker: Option<Link>,
+    ) -> Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let failure = Arc::new(Mutex::new(None));
         let (ready_tx, ready_rx) = mpsc::channel::<Result<EngineInfo>>();
@@ -63,7 +72,7 @@ impl Engine {
             let (stop, failure) = (stop.clone(), failure.clone());
             std::thread::Builder::new()
                 .name("hush-audio".into())
-                .spawn(move || run(input_id, params, telemetry, stop, failure, ready_tx))
+                .spawn(move || run(input_id, params, telemetry, speaker, stop, failure, ready_tx))
                 .context("could not spawn audio thread")?
         };
 
@@ -113,6 +122,7 @@ fn run(
     input_id: Option<String>,
     params: Arc<Params>,
     telemetry: Arc<Telemetry>,
+    speaker: Option<Link>,
     stop: Arc<AtomicBool>,
     failure: Arc<Mutex<Option<String>>>,
     ready: mpsc::Sender<Result<EngineInfo>>,
@@ -129,7 +139,7 @@ fn run(
         + (running.df.hop_size * (1 + running.df.lookahead) + OUTPUT_PREFILL) as f32 * 1000.0 / ENGINE_RATE as f32;
     telemetry.set_latency_ms(latency);
     let _ = ready.send(Ok(info));
-    process_loop(running, &params, &telemetry, &stop, &failure);
+    process_loop(running, &params, &telemetry, speaker.as_ref(), &stop, &failure);
 }
 
 fn setup(
@@ -271,10 +281,13 @@ fn process_loop(
     mut r: Running,
     params: &Params,
     telemetry: &Telemetry,
+    speaker: Option<&Link>,
     stop: &AtomicBool,
     failure: &Arc<Mutex<Option<String>>>,
 ) {
     let hop = r.df.hop_size;
+    let mut speaker_gain = 1.0f32;
+    let speaker_coef = (-1.0 / (SPEAKER_FADE_MS / 1000.0 * ENGINE_RATE as f32)).exp();
     let hop_duration = Duration::from_secs_f64(hop as f64 / ENGINE_RATE as f64);
     let mut resampler = Resampler::new(r.input_rate, ENGINE_RATE);
     let mut out_resampler = Resampler::new(ENGINE_RATE, r.output_rate);
@@ -315,6 +328,14 @@ fn process_loop(
                     enhanced.copy_from_slice(frame);
                 }
                 gate.process(&mut enhanced, params.gate_dbfs());
+                if let Some(link) = speaker {
+                    link.send(Hop { samples: downsample_48k(&enhanced), speech: gate.is_open() });
+                    let target = if link.allow() { 1.0 } else { SPEAKER_FLOOR };
+                    for s in enhanced.iter_mut() {
+                        speaker_gain = target + speaker_coef * (speaker_gain - target);
+                        *s *= speaker_gain;
+                    }
+                }
             } else {
                 enhanced.copy_from_slice(frame);
             }
@@ -359,7 +380,7 @@ mod tests {
         let wanted = std::env::var("HUSH_TEST_MIC").expect("set HUSH_TEST_MIC to part of a device name");
         let mic = devices::list_inputs().into_iter().find(|i| i.name.contains(&wanted)).expect("microphone not found");
         let params = Arc::new(Params::new(true, crate::audio::params::Mode::Noise, 72.0, -42.0));
-        let engine = Engine::start(Some(mic.id), params, Arc::new(Telemetry::default())).expect("engine starts");
+        let engine = Engine::start(Some(mic.id), params, Arc::new(Telemetry::default()), None).expect("engine starts");
         println!("running on {} (bluetooth: {})", engine.info().input_name, engine.info().bluetooth_quality);
         for second in 1..=15 {
             std::thread::sleep(Duration::from_secs(1));

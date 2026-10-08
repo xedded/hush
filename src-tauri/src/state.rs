@@ -7,6 +7,8 @@ use crate::audio::engine::{Engine, EngineInfo};
 use crate::audio::params::{Mode, Params};
 use crate::audio::telemetry::Telemetry;
 use crate::settings::{Settings, Store};
+use crate::speaker::library::Store as VoiceStore;
+use crate::speaker::service::Speakers;
 use crate::virtual_mic;
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -31,6 +33,7 @@ pub struct UiState {
 pub struct AppState {
     pub params: Arc<Params>,
     pub telemetry: Arc<Telemetry>,
+    pub speakers: Speakers,
     engine: Mutex<Option<Engine>>,
     settings: Mutex<Settings>,
     error: Mutex<Option<String>>,
@@ -43,11 +46,12 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl AppState {
-    pub fn new(store: Store) -> Self {
+    pub fn new(store: Store, voices: VoiceStore) -> Self {
         let s = store.load();
-        let params = Params::new(s.active, s.mode, s.suppression, s.gate_dbfs);
+        let params = Arc::new(Params::new(s.active, s.mode, s.suppression, s.gate_dbfs));
         Self {
-            params: Arc::new(params),
+            speakers: Speakers::start(voices, params.clone()),
+            params,
             telemetry: Arc::new(Telemetry::default()),
             engine: Mutex::new(None),
             settings: Mutex::new(s),
@@ -62,7 +66,7 @@ impl AppState {
         let mut engine = lock(&self.engine);
         *engine = None;
         let input_id = lock(&self.settings).input_id.clone();
-        match Engine::start(input_id, self.params.clone(), self.telemetry.clone()) {
+        match Engine::start(input_id, self.params.clone(), self.telemetry.clone(), Some(self.speakers.link())) {
             Ok(e) => {
                 *engine = Some(e);
                 *lock(&self.error) = None;

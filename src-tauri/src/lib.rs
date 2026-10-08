@@ -1,6 +1,7 @@
 mod audio;
 mod commands;
 mod settings;
+mod speaker;
 mod state;
 mod tray;
 pub mod virtual_mic;
@@ -20,6 +21,14 @@ const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 /// How often the virtual cable's install state is re-read.
 const MIC_CHECK_INTERVAL: Duration = Duration::from_secs(3);
 
+/// One telemetry event: audio levels plus who is speaking ("me", a voice id or "unknown").
+#[derive(Clone, serde::Serialize)]
+struct Tick {
+    #[serde(flatten)]
+    levels: audio::telemetry::Snapshot,
+    speaking: Option<String>,
+}
+
 /// Push levels to the UI and restart the engine after device loss.
 fn spawn_monitor(app: AppHandle, state: Arc<AppState>) {
     std::thread::Builder::new()
@@ -28,6 +37,7 @@ fn spawn_monitor(app: AppHandle, state: Arc<AppState>) {
             let mut last_retry = Instant::now();
             let mut last_mic_check = Instant::now();
             let mut mic_status = virtual_mic::status();
+            let mut voices_version = 0;
             loop {
                 std::thread::sleep(TELEMETRY_INTERVAL);
                 // Hide or show the setup panel as soon as the virtual cable appears or goes away.
@@ -50,7 +60,15 @@ fn spawn_monitor(app: AppHandle, state: Arc<AppState>) {
                         let _ = app.emit("state", state.ui_state());
                     }
                 }
-                let _ = app.emit("telemetry", state.telemetry.take());
+                let version = state.speakers.version();
+                if version != voices_version {
+                    voices_version = version;
+                    let _ = app.emit("voices", state.speakers.view());
+                }
+                if let Some(result) = state.speakers.take_enroll_result() {
+                    let _ = app.emit("enrollment-done", result);
+                }
+                let _ = app.emit("telemetry", Tick { levels: state.telemetry.take(), speaking: state.speakers.speaking() });
             }
         })
         .expect("spawn monitor thread");
@@ -62,7 +80,8 @@ pub fn run() {
         .plugin(tray::shortcut_plugin())
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
-            let state = Arc::new(AppState::new(settings::Store::new(&dir)));
+            let voices = speaker::library::Store::new(&app.path().app_data_dir()?, Box::new(speaker::library::Keychain));
+            let state = Arc::new(AppState::new(settings::Store::new(&dir), voices));
             app.manage(state.clone());
 
             tray::install(app.handle())?;
@@ -95,6 +114,14 @@ pub fn run() {
             commands::set_muted,
             commands::open_vbcable_page,
             commands::rename_virtual_mic,
+            commands::get_voices,
+            commands::set_voice_on,
+            commands::rename_voice,
+            commands::set_voice_default,
+            commands::delete_voice,
+            commands::set_unknown_policy,
+            commands::start_enrollment,
+            commands::cancel_enrollment,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hush");

@@ -76,3 +76,59 @@ pub async fn rename_virtual_mic(state: AppStateRef<'_>) -> Result<UiState, Strin
     })?;
     Ok(state.ui_state())
 }
+
+// ---------- Voices ----------
+
+use crate::speaker::library::Policy;
+use crate::speaker::service::VoicesView;
+
+fn voice_result(state: &AppState, r: anyhow::Result<()>) -> Result<VoicesView, String> {
+    r.map_err(|e| e.to_string())?;
+    Ok(state.speakers.view())
+}
+
+#[tauri::command]
+pub async fn get_voices(state: AppStateRef<'_>) -> Result<VoicesView, String> {
+    Ok(state.speakers.view())
+}
+
+#[tauri::command]
+pub async fn set_voice_on(state: AppStateRef<'_>, id: String, on: bool) -> Result<VoicesView, String> {
+    voice_result(&state, state.speakers.set_voice_on(&id, on))
+}
+
+#[tauri::command]
+pub async fn rename_voice(state: AppStateRef<'_>, id: String, name: String) -> Result<VoicesView, String> {
+    voice_result(&state, state.speakers.rename(&id, &name))
+}
+
+#[tauri::command]
+pub async fn set_voice_default(state: AppStateRef<'_>, id: String, policy: Policy) -> Result<VoicesView, String> {
+    voice_result(&state, state.speakers.set_default(&id, policy))
+}
+
+#[tauri::command]
+pub async fn delete_voice(state: AppStateRef<'_>, id: String) -> Result<VoicesView, String> {
+    voice_result(&state, state.speakers.delete(&id))
+}
+
+#[tauri::command]
+pub async fn set_unknown_policy(state: AppStateRef<'_>, policy: Policy) -> Result<VoicesView, String> {
+    voice_result(&state, state.speakers.set_unknown(policy))
+}
+
+/// Recording needs the denoiser running, so the profile matches what Hush hears later.
+#[tauri::command]
+pub async fn start_enrollment(state: AppStateRef<'_>) -> Result<VoicesView, String> {
+    if !state.engine_running() || !state.params.processing() {
+        return Err("Slå på Hush och välj Dämpa bakgrundsljud innan du spelar in.".into());
+    }
+    state.speakers.start_enrollment();
+    Ok(state.speakers.view())
+}
+
+#[tauri::command]
+pub async fn cancel_enrollment(state: AppStateRef<'_>) -> Result<VoicesView, String> {
+    state.speakers.cancel_enrollment();
+    Ok(state.speakers.view())
+}

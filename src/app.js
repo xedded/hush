@@ -12,6 +12,7 @@
   const SEND_INTERVAL_MS = 50;
 
   let ui = null; // last UiState from the engine side
+  let enrolled = false; // set by voices.js
   const micName = () => (ui && ui.virtualMicName) || "Hush Microphone";
 
   // macOS: native traffic-light buttons and the Mac way of writing the shortcut.
@@ -58,6 +59,8 @@
     paint(r); label(+r.value);
     return (v) => { r.value = v; paint(r); label(+r.value); };
   };
+
+  window.HushUI = { $, $$, css, invoke, toast, fail, checked, setChecked, seg, pressSeg };
 
   // ---------- Window and navigation ----------
   $("#winMin").addEventListener("click", () => appWindow.minimize());
@@ -119,7 +122,7 @@
 
   function renderMode() {
     pressSeg($("#modeSeg"), "mode", ui.mode);
-    $("#meHint").hidden = ui.mode !== "me";
+    $("#meHint").hidden = ui.mode !== "me" || enrolled;
   }
 
   const SETUP = {
@@ -225,49 +228,7 @@
   });
   tauri.app.getVersion().then((v) => ($("#version").textContent = "Hush " + v)).catch(() => {});
 
-  // ---------- Voices and voice filter: preview until the features ship ----------
-  // Library entries own the names; voices heard in this meeting point at their entry.
-  const library = [
-    { name: "Sara", heard: "i dag", def: "mute", named: true },
-    { name: "Röst 3", heard: "i dag", def: "mute", named: false },
-    { name: "Johan", heard: "3 okt", def: "mute", named: true },
-    { name: "Mikael", heard: "22 sep", def: "pass", named: true },
-  ];
-  const voices = [
-    { id: "me", color: "#e0a458", on: true, locked: true, match: 0.97, rate: 0.55, level: 1.0 },
-    { id: "v2", lib: library[0], color: "#7fa7c9", on: false, match: 0.91, rate: 0.30, level: 0.35 },
-    { id: "v3", lib: library[1], color: "#a593c4", on: false, match: 0.81, rate: 0.18, level: 0.25 },
-  ];
-  const voiceName = (v) => (v.locked ? "Din röst" : v.lib.name);
-  const voiceMeta = (v) => (v.locked ? "Huvudanvändare, röstprofil sparad" : v.lib.named ? "Känd röst, igenkänd" : "Ny i det här mötet, ge den ett namn");
-
-  const MAX_NAME = 40;
-  const PENCIL = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M10.5 2.5l3 3L6 13H3v-3l7.5-7.5z"/></svg>';
-  // Editable name: click the name or the pencil, Enter saves, Escape cancels.
-  function nameField(entry) {
-    const wrap = document.createElement("span"); wrap.className = "name-field";
-    const input = document.createElement("input");
-    input.value = entry.name; input.maxLength = MAX_NAME;
-    input.setAttribute("aria-label", "Namn på " + entry.name);
-    const pen = document.createElement("button");
-    pen.className = "name-edit"; pen.type = "button"; pen.innerHTML = PENCIL;
-    pen.setAttribute("aria-label", "Byt namn på " + entry.name); pen.title = "Byt namn";
-    pen.addEventListener("click", () => { input.focus(); input.select(); });
-    const commit = () => {
-      const next = input.value.trim().slice(0, MAX_NAME);
-      if (!next || next === entry.name) { input.value = entry.name; return; }
-      entry.name = next; entry.named = true;
-      renderVoices(); renderLibrary();
-      toast("Rösten heter nu " + next);
-    };
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") input.blur();
-      if (e.key === "Escape") { input.value = entry.name; input.blur(); }
-    });
-    input.addEventListener("blur", commit);
-    wrap.append(input, pen);
-    return wrap;
-  }
+  // ---------- Voice filter: preview until the feature ships ----------
   const presets = [
     ["Ingen", 0, 0], ["Filmtrailer", -5, -20], ["Rymdskurk", -8, -35], ["Sportkommentator", 2, 10],
     ["Robot", 0, 0], ["Troll", -10, -45], ["Radio 1985", 1, 5], ["Helium", 9, 40],
@@ -275,8 +236,6 @@
 
   bind("#pitch", (v) => ($("#pitchOut").textContent = (v > 0 ? "+" : "") + v + " halvtoner"));
   bind("#formant", (v) => ($("#formantOut").textContent = (v > 0 ? "+" : "") + v + " %"));
-  seg($("#unknownSeg"), () => {});
-  $("#enroll").addEventListener("click", () => toast("Röstprofiler kommer i nästa version"));
   $("#preview").addEventListener("click", () => toast("Röstfilter kommer i en senare version"));
 
   const presetBox = $("#presets");
@@ -295,93 +254,6 @@
     presetBox.appendChild(b);
   });
   $("#resetFx").addEventListener("click", () => presetBox.firstChild.click());
-
-  function renderVoices() {
-    const list = $("#voiceList"); list.textContent = "";
-    voices.forEach((v) => {
-      const row = document.createElement("div");
-      row.className = "voice" + (v.on ? "" : " muted");
-      row.innerHTML = `
-        <div class="who"><i class="swatch"></i><div class="who-text">
-          <div class="who-name"></div><div class="who-meta"></div></div></div>
-        <canvas height="28"></canvas>
-        <div class="match"></div>
-        <button class="switch" role="switch"></button>`;
-      row.querySelector(".swatch").style.background = v.color;
-      const nameBox = row.querySelector(".who-name");
-      if (v.locked) {
-        nameBox.textContent = voiceName(v);
-        const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = "Profil"; nameBox.appendChild(tag);
-      } else {
-        nameBox.appendChild(nameField(v.lib));
-      }
-      row.querySelector(".who-meta").textContent = voiceMeta(v);
-      row.querySelector(".match").textContent = Math.round(v.match * 100) + " % träff";
-      const sw = row.querySelector(".switch");
-      setChecked(sw, v.on);
-      sw.setAttribute("aria-label", (v.on ? "Stäng av " : "Släpp igenom ") + voiceName(v));
-      sw.addEventListener("click", () => {
-        if (v.locked) { toast("Din egen röst släpps alltid igenom"); return; }
-        v.on = !v.on; renderVoices();
-      });
-      v.canvas = row.querySelector("canvas");
-      list.appendChild(row);
-    });
-    resizeCanvases();
-  }
-
-  function renderLibrary() {
-    const box = $("#library"); box.textContent = "";
-    $("#libCount").textContent = library.length + (library.length === 1 ? " röst" : " röster");
-    if (!library.length) {
-      const empty = document.createElement("div"); empty.className = "list-row";
-      empty.innerHTML = '<div style="color:var(--muted)">Inga röster sparade.</div>';
-      box.appendChild(empty); return;
-    }
-    library.forEach((l) => {
-      const row = document.createElement("div"); row.className = "list-row";
-      row.innerHTML = `<div class="lib-who"><div class="who-name"></div><p></p></div>
-        <div class="lib-actions">
-          <div class="seg" role="group"><button data-d="pass">Hörs</button><button data-d="mute">Tystas</button></div>
-          <button class="btn icon" aria-label="Ta bort"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5"/></svg></button>
-        </div>`;
-      row.querySelector(".who-name").appendChild(nameField(l));
-      row.querySelector("p").textContent = (l.named ? "" : "Inte namngiven, ") + "senast hörd " + l.heard;
-      const sg = row.querySelector(".seg"); sg.setAttribute("aria-label", "Standard för " + l.name);
-      pressSeg(sg, "d", l.def);
-      seg(sg, (b) => (l.def = b.dataset.d));
-      // Deleting a voiceprint is permanent, so it takes a second click to confirm.
-      const del = row.querySelector(".icon");
-      let armed = false, disarm;
-      del.addEventListener("click", () => {
-        if (!armed) {
-          armed = true; del.classList.add("armed"); del.setAttribute("aria-label", "Bekräfta borttagning");
-          toast("Klicka igen för att ta bort " + l.name + " permanent");
-          disarm = setTimeout(() => { armed = false; del.classList.remove("armed"); del.setAttribute("aria-label", "Ta bort"); }, 3000);
-          return;
-        }
-        clearTimeout(disarm);
-        library.splice(library.indexOf(l), 1);
-        // A deleted voice is forgotten everywhere, also in the current meeting.
-        const i = voices.findIndex((v) => v.lib === l);
-        if (i >= 0) voices.splice(i, 1);
-        renderVoices(); renderLibrary();
-        toast(l.name + " borttagen. Röstprofilen är raderad.");
-      });
-      box.appendChild(row);
-    });
-  }
-
-  const HISTORY = 240;
-  voices.forEach((v) => { v.hist = new Array(HISTORY).fill(0); v.left = 0; });
-  function stepVoices() {
-    voices.forEach((v) => {
-      if (v.left <= 0) { v.talking = Math.random() < v.rate; v.left = 6 + Math.random() * 30; }
-      v.left--;
-      const syl = v.talking ? v.level * (0.45 + 0.55 * Math.abs(Math.sin(performance.now() / 90 + v.level * 7))) : 0;
-      v.hist.push(syl); v.hist.shift();
-    });
-  }
 
   // ---------- Drawing ----------
   function fit(c) {
@@ -415,21 +287,8 @@
     }
     label.textContent = db <= METER_FLOOR_DB ? "-inf" : Math.round(db) + " dB";
   }
-  function drawLane(v) {
-    const c = v.canvas; if (!c) return;
-    const g = c.getContext("2d"), w = c.width, h = c.height; if (!w) return;
-    g.clearRect(0, 0, w, h);
-    g.fillStyle = css("--line-soft"); g.fillRect(0, h - 1, w, 1);
-    const bw = w / HISTORY;
-    g.fillStyle = v.on ? v.color : css("--off");
-    v.hist.forEach((a, i) => {
-      if (a <= 0) return;
-      const bh = Math.max(2, a * (h - 2));
-      g.fillRect(i * bw, h - 1 - bh, Math.ceil(bw), bh);
-    });
-  }
 
-  let last = 0, laneTick = 0;
+  let last = 0;
   function frame(t) {
     if (t - last > 33 && !document.hidden) {
       last = t;
@@ -439,15 +298,21 @@
         drawMeter($("#meterIn"), peakIn, $("#dbIn"));
         drawMeter($("#meterOut"), peakOut, $("#dbOut"));
       }
-      if (++laneTick % 3 === 0) stepVoices();
-      if (!$('[data-panel="voices"]').hidden) voices.forEach(drawLane);
     }
     requestAnimationFrame(frame);
   }
 
-  for (let i = 0; i < HISTORY; i++) stepVoices();
-  renderVoices();
-  renderLibrary();
+  // Shared with voices.js.
+  Object.assign(window.HushUI, {
+    fit,
+    resizeCanvases,
+    setEnrolled(v) { enrolled = v; if (ui) renderMode(); },
+    mode: () => ui && ui.mode,
+    setMode(mode) {
+      return invoke("set_mode", { value: mode }).then(() => { ui.mode = mode; renderMode(); });
+    },
+  });
+
   resizeCanvases();
   requestAnimationFrame(frame);
   invoke("get_state").then(render).catch(fail);

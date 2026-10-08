@@ -24,6 +24,13 @@ Ljudet bearbetas lokalt på datorn med DeepFilterNet och skickas till en virtuel
 4. Tillåt mikrofonen när macOS frågar.
 5. Välj **BlackHole 2ch** som mikrofon i mötesprogrammet.
 
+## Röster
+
+Under **Röster** spelar du in din röstprofil (cirka 30 sekunder tal). Därefter känner Hush igen
+din röst och andra röster i rummet. Nya röster sparas i röstbiblioteket tills du tar bort dem.
+Stäng av en röst för att hålla den utanför mikrofonen, eller välj läget **Bara min röst**.
+Röstprofilerna sparas krypterat (AES-256, nyckeln i systemets nyckelring) och lämnar aldrig datorn.
+
 Snabbkommando för att stänga av mikrofonen: Ctrl Alt M (Windows), ⌃⌥M (macOS).
 
 ## Utveckling
@@ -40,5 +47,7 @@ eller lokalt med `npx tauri build`.
 ## Tredjepart
 
 - DeepFilterNet (MIT/Apache-2.0), lågfördröjningsmodellen DeepFilterNet3 LL.
+- Röstigenkänning: [WeSpeaker](https://github.com/wenet-e2e/wespeaker) CAM++ (large margin),
+  tränad på VoxCeleb, licens CC BY 4.0. ONNX-version från sherpa-onnx.
 - VB-CABLE (donationware, VB-Audio Software) och BlackHole (GPL-3.0, Existential Audio)
   ingår inte i Hush. Användaren installerar dem själv.
