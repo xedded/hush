@@ -1,7 +1,7 @@
 [package]
 name = "hush"
 version = "0.2.0"
-description = "Hush - mikrofonrening for videomoten"
+description = "Brusreducering och röstigenkänning för videomöten"
 authors = ["Pontus Segerstad"]
 edition = "2021"
 rust-version = "1.90"

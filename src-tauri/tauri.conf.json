@@ -39,7 +39,7 @@
     ],
     "publisher": "Pontus Segerstad",
     "copyright": "Pontus Segerstad",
-    "shortDescription": "Mikrofonrening för videomöten",
+    "shortDescription": "Brusreducering och röstigenkänning för videomöten",
     "windows": {
       "nsis": {
         "installMode": "perMachine",
