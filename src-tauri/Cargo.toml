@@ -1,0 +1,46 @@
+[package]
+name = "hush"
+version = "0.1.0"
+description = "Hush - mikrofonrening for videomoten"
+authors = ["Pontus Segerstad"]
+edition = "2021"
+rust-version = "1.90"
+
+[lib]
+name = "hush_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-global-shortcut = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+cpal = "0.18"
+ringbuf = "0.4"
+ndarray = "0.15"
+anyhow = "1"
+log = "0.4"
+# Low-latency DFN3 variant: no lookahead, so less delay in calls. The standard
+# DFN3 model also fails to load under tract 0.21.4 ("duplicate name /convt3/Conv.bias").
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", default-features = false, features = ["tract", "default-model-ll"] }
+# deep_filter asks for tract ^0.21.4, but 0.21.5+ moved to ndarray 0.16 and no longer
+# compiles with it. Pin to the version DeepFilterNet itself locks.
+tract-core = "=0.21.4"
+tract-onnx = "=0.21.4"
+tract-pulse = "=0.21.4"
+tract-hir = "=0.21.4"
+
+[target.'cfg(windows)'.dependencies]
+# Same version cpal uses, so no second copy is compiled.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant", "Win32_UI_Shell_PropertiesSystem", "Win32_Devices_FunctionDiscovery", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+
+[profile.dev.package."*"]
+# Neural inference is far too slow unoptimized; keep our own crate debuggable.
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
