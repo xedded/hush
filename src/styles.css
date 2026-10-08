@@ -255,3 +255,4 @@ main { overflow-y: auto; }
 .progress { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
 .voice .who-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.update-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-color: var(--accent); flex-wrap: wrap; }

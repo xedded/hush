@@ -50,6 +50,18 @@
         "installerIcon": "icons/icon.ico",
         "installerHooks": "windows/hooks.nsh"
       }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc4QTA2RTE5NzQ1M0JCQjUKUldTMXUxTjBHVzZnZVBHZHdzUEcvMy9VWDd4Y3JxdVU4U0ZKTEpMbFVNM0FLcXp4VllWVHpBRWgK",
+      "endpoints": [
+        "https://github.com/xedded/hush/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

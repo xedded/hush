@@ -52,3 +52,17 @@ eller lokalt med `npx tauri build`.
 - VB-CABLE (donationware, VB-Audio Software) och BlackHole (GPL-3.0, Existential Audio)
   ingår inte i Hush. Användaren installerar dem själv.
 - Typsnitt: Instrument Sans och IBM Plex Mono (SIL Open Font License 1.1, se `src/fonts`).
+
+## Släppa en ny version
+
+```
+node scripts/release.mjs 0.2.1 "Kort beskrivning av vad som är nytt"
+```
+
+Skriptet höjer versionsnumret, skapar en tagg och pushar. GitHub Actions bygger och signerar
+båda plattformarna och publicerar en release. Installerade versioner av Hush hittar den inom
+några timmar (eller direkt via Inställningar > Sök efter uppdatering) och frågar innan de installerar.
+
+Uppdateringar signeras med nyckeln i `~/.tauri/hush-updater.key` (hemligheten
+`TAURI_SIGNING_PRIVATE_KEY` i GitHub). Förlorad nyckel betyder att installerade versioner
+inte kan uppdateras längre, så spara en kopia på ett säkert ställe.

@@ -43,6 +43,10 @@
     </nav>
 
     <main id="main">
+      <div class="panel update-bar" id="updateBar" hidden>
+        <span id="updateText"></span>
+        <button class="btn primary" id="updateInstall">Installera och starta om</button>
+      </div>
       <!-- Ljud -->
       <section data-panel="sound" class="section" style="gap:20px">
         <div class="page-head">
@@ -229,7 +233,7 @@
             </div>
           </div>
           <div class="list-row"><div>Tredjepart<p>Brusreducering: DeepFilterNet (MIT/Apache-2.0). Röstigenkänning: WeSpeaker CAM++, tränad på VoxCeleb (CC BY 4.0).</p></div></div>
-          <div class="list-row"><div>Version<p id="version">Hush 0.1.0</p></div><button class="btn">Sök efter uppdatering</button></div>
+          <div class="list-row"><div>Version<p id="version">Hush 0.1.0</p></div><button class="btn" id="checkUpdate">Sök efter uppdatering</button></div>
         </div>
       </section>
     </main>

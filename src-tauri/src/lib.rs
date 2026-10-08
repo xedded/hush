@@ -4,6 +4,7 @@ mod settings;
 mod speaker;
 mod state;
 mod tray;
+mod updater;
 pub mod virtual_mic;
 #[cfg(windows)]
 mod win_endpoint;
@@ -78,6 +79,7 @@ fn spawn_monitor(app: AppHandle, state: Arc<AppState>) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tray::shortcut_plugin())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let dir = app.path().app_config_dir()?;
             let voices = speaker::library::Store::new(&app.path().app_data_dir()?, Box::new(speaker::library::Keychain));
@@ -86,6 +88,7 @@ pub fn run() {
 
             tray::install(app.handle())?;
             tray::register_shortcuts(app.handle());
+            updater::spawn_checks(app.handle().clone());
 
             // Loading the model takes a moment; let the window appear first.
             let (handle, starter) = (app.handle().clone(), state.clone());
@@ -122,6 +125,8 @@ pub fn run() {
             commands::set_unknown_policy,
             commands::start_enrollment,
             commands::cancel_enrollment,
+            updater::check_update,
+            updater::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Hush");

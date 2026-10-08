@@ -228,6 +228,32 @@
   });
   tauri.app.getVersion().then((v) => ($("#version").textContent = "Hush " + v)).catch(() => {});
 
+
+  // ---------- Updates ----------
+  const showUpdate = (info) => {
+    $("#updateText").textContent = "Hush " + info.version + " finns. Installationen tar under en minut och Hush startar om.";
+    $("#updateBar").hidden = false;
+  };
+  tauri.event.listen("update-available", ({ payload }) => showUpdate(payload));
+  $("#checkUpdate").addEventListener("click", () => {
+    const btn = $("#checkUpdate");
+    btn.disabled = true;
+    invoke("check_update")
+      .then((info) => (info ? showUpdate(info) : toast("Du har den senaste versionen")))
+      .catch(fail)
+      .finally(() => (btn.disabled = false));
+  });
+  $("#updateInstall").addEventListener("click", () => {
+    const btn = $("#updateInstall");
+    btn.disabled = true;
+    btn.textContent = "Laddar ner";
+    invoke("install_update").catch((e) => {
+      fail(e);
+      btn.disabled = false;
+      btn.textContent = "Installera och starta om";
+    });
+  });
+
   // ---------- Voice filter: preview until the feature ships ----------
   const presets = [
     ["Ingen", 0, 0], ["Filmtrailer", -5, -20], ["Rymdskurk", -8, -35], ["Sportkommentator", 2, 10],
