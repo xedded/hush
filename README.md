@@ -51,3 +51,4 @@ eller lokalt med `npx tauri build`.
   tränad på VoxCeleb, licens CC BY 4.0. ONNX-version från sherpa-onnx.
 - VB-CABLE (donationware, VB-Audio Software) och BlackHole (GPL-3.0, Existential Audio)
   ingår inte i Hush. Användaren installerar dem själv.
+- Typsnitt: Instrument Sans och IBM Plex Mono (SIL Open Font License 1.1, se `src/fonts`).
