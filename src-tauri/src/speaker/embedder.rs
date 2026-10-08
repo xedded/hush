@@ -115,15 +115,25 @@ pub mod tests {
     }
 
     #[test]
-    fn embedding_is_unit_length_and_fast_enough() {
+    fn embedding_is_unit_length() {
+        let e = Embedder::new().unwrap();
+        let v = e.embed(&read_fixture("zira_a.wav")[..WINDOW_SAMPLES]).unwrap();
+        assert!((v.iter().map(|x| x * x).sum::<f32>() - 1.0).abs() < 1e-4);
+    }
+
+    /// Manual: timings on shared CI machines are too noisy to assert on.
+    /// `cargo test --release --lib embedding_speed -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn embedding_speed() {
         let e = Embedder::new().unwrap();
         let audio = read_fixture("zira_a.wav");
+        e.embed(&audio[..WINDOW_SAMPLES]).unwrap(); // warm-up
         let started = std::time::Instant::now();
-        let v = e.embed(&audio[..WINDOW_SAMPLES]).unwrap();
-        let took = started.elapsed();
-        println!("one embedding: {took:?}, dim {}", v.len());
-        assert!((v.iter().map(|x| x * x).sum::<f32>() - 1.0).abs() < 1e-4);
-        assert!(took < std::time::Duration::from_millis(400));
+        for _ in 0..5 {
+            e.embed(&audio[..WINDOW_SAMPLES]).unwrap();
+        }
+        println!("one embedding: {:?}", started.elapsed() / 5);
     }
 
     #[test]

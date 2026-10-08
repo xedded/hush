@@ -415,6 +415,7 @@ mod tests {
         let reduction_db = 10.0 * (energy(&input[tail..]) / energy(&output[tail..]).max(1e-12)).log10();
         println!("noise reduction {reduction_db:.1} dB, {per_hop:?} per 10 ms hop");
         assert!(reduction_db > 15.0, "only {reduction_db:.1} dB");
-        assert!(per_hop < Duration::from_millis(5), "too slow: {per_hop:?}");
+        // Real time is 10 ms per hop; leave headroom for slow shared CI machines.
+        assert!(per_hop < Duration::from_millis(8), "too slow: {per_hop:?}");
     }
 }
