@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::audio::devices::{self, InputInfo};
 use crate::audio::engine::{Engine, EngineInfo};
+use crate::audio::enhance::EnhanceSettings;
 use crate::audio::fx::FxSettings;
 use crate::audio::params::{Mode, Params};
 use crate::audio::telemetry::Telemetry;
@@ -24,6 +25,7 @@ pub struct UiState {
     pub suppression: f32,
     pub gate_dbfs: f32,
     pub voice_fx: FxSettings,
+    pub voice_enhance: EnhanceSettings,
     pub monitor: bool,
     pub engine: Option<EngineInfo>,
     pub error: Option<String>,
@@ -54,6 +56,7 @@ impl AppState {
         let params = Arc::new(Params::new(s.active, s.mode, s.suppression, s.gate_dbfs));
         // The sound settings are kept, but a changed voice is never a surprise at start.
         params.set_fx(FxSettings { enabled: false, ..s.voice_fx });
+        params.set_enhance(s.voice_enhance);
         Self {
             speakers: Speakers::start(voices, params.clone()),
             params,
@@ -110,6 +113,7 @@ impl AppState {
             suppression: self.params.suppression(),
             gate_dbfs: self.params.gate_dbfs(),
             voice_fx: self.params.fx(),
+            voice_enhance: self.params.enhance(),
             monitor: self.params.monitor(),
             engine,
             error: lock(&self.error).clone(),
@@ -157,6 +161,12 @@ impl AppState {
         self.params.set_fx(fx);
         let fx = self.params.fx();
         self.update(|s| s.voice_fx = fx);
+    }
+
+    pub fn set_voice_enhance(&self, e: EnhanceSettings) {
+        self.params.set_enhance(e);
+        let e = self.params.enhance();
+        self.update(|s| s.voice_enhance = e);
     }
 
     /// Like muting, listening is not persisted: it needs headphones on.

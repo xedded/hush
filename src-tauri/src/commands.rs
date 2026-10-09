@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, State};
 
+use crate::audio::enhance::EnhanceSettings;
 use crate::audio::fx::FxSettings;
 use crate::audio::params::Mode;
 use crate::state::{AppState, UiState};
@@ -67,6 +68,12 @@ pub async fn set_muted(app: AppHandle, state: AppStateRef<'_>, value: bool) -> R
 pub async fn set_voice_fx(state: AppStateRef<'_>, value: FxSettings) -> Result<FxSettings, String> {
     state.set_voice_fx(value);
     Ok(state.params.fx())
+}
+
+#[tauri::command]
+pub async fn set_voice_enhance(state: AppStateRef<'_>, value: EnhanceSettings) -> Result<EnhanceSettings, String> {
+    state.set_voice_enhance(value);
+    Ok(state.params.enhance())
 }
 
 /// Play the outgoing sound on the default playback device.

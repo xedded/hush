@@ -1,45 +1,13 @@
 //! Old radio sound: a narrow telephone-like band and gentle tube-style
 //! saturation.
 
-use std::f32::consts::{FRAC_1_SQRT_2, TAU};
+use crate::audio::biquad::{Biquad, BUTTERWORTH_Q};
 
 const LOW_CUT_HZ: f32 = 350.0;
 const HIGH_CUT_HZ: f32 = 3_200.0;
 const DRIVE: f32 = 3.0;
 /// Makes up for the level the band filter takes away; quiet speech ends up about 4 dB louder.
 const MAKEUP: f32 = 1.6;
-
-/// RBJ cookbook biquad, transposed direct form II.
-#[derive(Clone, Copy)]
-struct Biquad {
-    b: [f32; 3],
-    a: [f32; 2],
-    z: [f32; 2],
-}
-
-impl Biquad {
-    fn new(rate: f32, hz: f32, high_pass: bool) -> Self {
-        let w = TAU * hz / rate;
-        let alpha = w.sin() / (2.0 * FRAC_1_SQRT_2);
-        let cos = w.cos();
-        let a0 = 1.0 + alpha;
-        let (b0, b1) = if high_pass { ((1.0 + cos) / 2.0, -(1.0 + cos)) } else { ((1.0 - cos) / 2.0, 1.0 - cos) };
-        Self { b: [b0 / a0, b1 / a0, b0 / a0], a: [-2.0 * cos / a0, (1.0 - alpha) / a0], z: [0.0; 2] }
-    }
-
-    fn tick(&mut self, x: f32) -> f32 {
-        let y = self.b[0] * x + self.z[0];
-        self.z[0] = self.b[1] * x - self.a[0] * y + self.z[1];
-        self.z[1] = self.b[2] * x - self.a[1] * y;
-        // After the voice gate closes the state decays towards denormals, which are slow on x86.
-        for z in &mut self.z {
-            if z.abs() < 1e-20 {
-                *z = 0.0;
-            }
-        }
-        y
-    }
-}
 
 pub struct Radio {
     filters: [Biquad; 4],
@@ -48,14 +16,14 @@ pub struct Radio {
 impl Radio {
     pub fn new(rate: u32) -> Self {
         let rate = rate as f32;
-        let hp = Biquad::new(rate, LOW_CUT_HZ, true);
-        let lp = Biquad::new(rate, HIGH_CUT_HZ, false);
+        let hp = Biquad::high_pass(rate, LOW_CUT_HZ, BUTTERWORTH_Q);
+        let lp = Biquad::low_pass(rate, HIGH_CUT_HZ, BUTTERWORTH_Q);
         // Two of each for a steeper, more obviously "small speaker" band.
         Self { filters: [hp, hp, lp, lp] }
     }
 
     pub fn reset(&mut self) {
-        self.filters.iter_mut().for_each(|f| f.z = [0.0; 2]);
+        self.filters.iter_mut().for_each(Biquad::reset);
     }
 
     pub fn tick(&mut self, x: f32) -> f32 {

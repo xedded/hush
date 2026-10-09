@@ -116,6 +116,24 @@
             <p>Ljud under tröskeln släpps inte igenom. Höj den om röster längre bort i rummet hörs.</p>
           </div>
         </div>
+
+        <div class="section">
+          <div class="label">Röstförbättring</div>
+          <div class="panel list">
+            <div class="list-row"><div>Förbättra rösten<p>Gör rösten tydligare och jämnare, som programvaran till studiomikrofoner. Ingen extra fördröjning.</p></div><button class="switch" id="enhSwitch" role="switch" aria-checked="false" aria-label="Förbättra rösten"></button></div>
+            <div class="list-row"><div>Profil<p id="enhDesc"></p></div>
+              <div class="seg" id="enhSeg" role="group" aria-label="Profil">
+                <button aria-pressed="false" data-preset="natural">Naturlig</button>
+                <button aria-pressed="true" data-preset="clear">Tydlig</button>
+                <button aria-pressed="false" data-preset="warm">Varm</button>
+              </div>
+            </div>
+            <div class="list-row enh-amount"><div>Styrka<p>Hur mycket klang, s-dämpning och utjämning som läggs på.</p></div>
+              <div class="amount"><input type="range" id="enhAmount" min="0" max="100" value="50" aria-label="Styrka"><output id="enhAmountOut">50 %</output></div>
+            </div>
+          </div>
+          <div class="hint"><span>Stäng av brusreduceringen och den automatiska mikrofonnivån i Teams, Zoom eller Slack. Annars motverkar de Hush.</span></div>
+        </div>
       </section>
 
       <!-- Röster -->
@@ -254,5 +272,6 @@
 <script src="app.js"></script>
 <script src="voices.js"></script>
 <script src="fx.js"></script>
+<script src="enhance.js"></script>
 </body>
 </html>

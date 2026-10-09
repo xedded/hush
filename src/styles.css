@@ -256,3 +256,7 @@ main { overflow-y: auto; }
 .progress i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
 .voice .who-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .update-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-color: var(--accent); flex-wrap: wrap; }
+.amount { display: flex; align-items: center; gap: 12px; width: min(280px, 45%); flex: none; }
+.amount input { flex: 1; }
+.amount output { font-family: var(--font-num); font-size: 12px; color: var(--accent); min-width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+.enh-amount[aria-disabled="true"] .amount { opacity: .45; }

@@ -1,5 +1,7 @@
+pub mod biquad;
 pub mod devices;
 pub mod engine;
+pub mod enhance;
 pub mod fx;
 pub mod gate;
 pub mod monitor;

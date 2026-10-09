@@ -3,6 +3,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 
+use super::enhance::{EnhanceSettings, Preset};
 use super::fx::{FxSettings, Style};
 
 /// Strongest attenuation the suppression slider reaches, in dB.
@@ -65,6 +66,9 @@ pub struct Params {
     fx_pitch: AtomicF32,
     fx_formant: AtomicF32,
     fx_style: AtomicU8,
+    enhance_enabled: AtomicBool,
+    enhance_preset: AtomicU8,
+    enhance_amount: AtomicF32,
     /// Play the outgoing sound on the default output so you can hear yourself.
     monitor: AtomicBool,
 }
@@ -74,6 +78,22 @@ fn style_to_u8(s: Style) -> u8 {
         Style::Natural => 0,
         Style::Robot => 1,
         Style::Radio => 2,
+    }
+}
+
+fn preset_to_u8(p: Preset) -> u8 {
+    match p {
+        Preset::Natural => 0,
+        Preset::Clear => 1,
+        Preset::Warm => 2,
+    }
+}
+
+fn preset_from_u8(v: u8) -> Preset {
+    match v {
+        0 => Preset::Natural,
+        2 => Preset::Warm,
+        _ => Preset::Clear,
     }
 }
 
@@ -98,6 +118,9 @@ impl Params {
             fx_formant: AtomicF32::default(),
             fx_style: AtomicU8::new(0),
             monitor: AtomicBool::new(false),
+            enhance_enabled: AtomicBool::new(false),
+            enhance_preset: AtomicU8::new(preset_to_u8(Preset::Clear)),
+            enhance_amount: AtomicF32::new(50.0),
         };
         p.set_suppression(suppression);
         p.set_gate_dbfs(gate_dbfs);
@@ -164,6 +187,20 @@ impl Params {
         self.fx_enabled.store(s.enabled, Ordering::Relaxed);
     }
 
+    pub fn enhance(&self) -> EnhanceSettings {
+        EnhanceSettings {
+            enabled: self.enhance_enabled.load(Ordering::Relaxed),
+            preset: preset_from_u8(self.enhance_preset.load(Ordering::Relaxed)),
+            amount: self.enhance_amount.load(),
+        }
+    }
+    pub fn set_enhance(&self, s: EnhanceSettings) {
+        let s = s.sanitized();
+        self.enhance_preset.store(preset_to_u8(s.preset), Ordering::Relaxed);
+        self.enhance_amount.store(s.amount);
+        self.enhance_enabled.store(s.enabled, Ordering::Relaxed);
+    }
+
     pub fn monitor(&self) -> bool {
         self.monitor.load(Ordering::Relaxed)
     }
@@ -212,6 +249,15 @@ mod tests {
         assert_eq!(p.fx(), s);
         p.set_fx(FxSettings { pitch: 99.0, ..s });
         assert_eq!(p.fx().pitch, 12.0);
+    }
+
+    #[test]
+    fn enhancement_round_trips() {
+        let p = Params::new(true, Mode::Noise, 50.0, -40.0);
+        assert_eq!(p.enhance(), EnhanceSettings::default());
+        let s = EnhanceSettings { enabled: true, preset: Preset::Warm, amount: 80.0 };
+        p.set_enhance(s);
+        assert_eq!(p.enhance(), s);
     }
 
     #[test]

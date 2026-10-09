@@ -1,4 +1,4 @@
-//! The audio engine: microphone -> DeepFilterNet -> voice gate -> speaker gate
+//! The audio engine: microphone -> DeepFilterNet -> voice gate -> speaker gate -> enhancement
 //! -> voice filter -> virtual microphone (and, on request, your own headphones).
 //!
 //! Three threads are involved. The cpal input callback downmixes to mono and
@@ -21,6 +21,7 @@ use ringbuf::traits::{Consumer, Observer, Producer, Split};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 
 use super::devices;
+use super::enhance::Enhancer;
 use super::fx::{self, VoiceFx};
 use super::gate::Gate;
 use super::monitor::Monitor;
@@ -307,6 +308,7 @@ fn sync_monitor(monitor: &mut Option<Monitor>, params: &Params) {
 
 fn process_loop(mut r: Running, ctx: Shared, stop: &AtomicBool, failure: &Arc<Mutex<Option<String>>>) {
     let Shared { params, telemetry, speaker, base_latency_ms } = ctx;
+    let mut enhancer = Enhancer::new(ENGINE_RATE);
     let mut fx = VoiceFx::new(ENGINE_RATE);
     let mut fx_was_active = false;
     let mut monitor: Option<Monitor> = None;
@@ -365,6 +367,12 @@ fn process_loop(mut r: Running, ctx: Shared, stop: &AtomicBool, failure: &Arc<Mu
             } else {
                 enhanced.copy_from_slice(frame);
             }
+            // Studio-style enhancement belongs to the processing chain: "Av" leaves the microphone untouched.
+            // The automatic level only learns while the speaker may be heard.
+            let mut tone = params.enhance();
+            tone.enabled &= params.processing();
+            let speech = params.processing() && gate.is_open() && speaker.is_none_or(Link::allow);
+            enhancer.process(&mut enhanced, &tone, speech);
             // The filter follows the speaker gate, so it only ever changes your own voice.
             let mut voice = params.fx();
             voice.enabled &= params.active();
@@ -419,6 +427,7 @@ mod tests {
         let mic = devices::list_inputs().into_iter().find(|i| i.name.contains(&wanted)).expect("microphone not found");
         let params = Arc::new(Params::new(true, crate::audio::params::Mode::Noise, 72.0, -42.0));
         params.set_fx(fx::FxSettings { enabled: true, pitch: -5.0, formant: -20.0, style: fx::Style::Natural });
+        params.set_enhance(super::super::enhance::EnhanceSettings { enabled: true, ..Default::default() });
         let telemetry = Arc::new(Telemetry::default());
         let engine = Engine::start(Some(mic.id), params, telemetry.clone(), None).expect("engine starts");
         println!("running on {} (bluetooth: {})", engine.info().input_name, engine.info().bluetooth_quality);

@@ -133,6 +133,7 @@ pub fn run() {
             commands::cancel_enrollment,
             commands::set_voice_fx,
             commands::set_monitor,
+            commands::set_voice_enhance,
             updater::check_update,
             updater::install_update,
         ])
