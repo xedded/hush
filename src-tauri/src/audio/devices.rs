@@ -107,6 +107,16 @@ pub fn find_virtual_sink() -> Option<Device> {
     host.output_devices().ok()?.find(|d| device_name(d).contains(VIRTUAL_SINK))
 }
 
+/// Where "listen to yourself" plays: the system's default playback device.
+/// Never the virtual cable, which would feed the sound straight back into the meeting.
+pub fn monitor_output() -> Result<Device, &'static str> {
+    let dev = cpal::default_host().default_output_device().ok_or("Ingen uppspelningsenhet hittades.")?;
+    if is_virtual(&device_name(&dev)) {
+        return Err("Standardutgången är den virtuella kabeln. Välj dina hörlurar som uppspelningsenhet i datorns ljudinställningar.");
+    }
+    Ok(dev)
+}
+
 pub fn input_display_name(d: &Device) -> String {
     display_name(&device_name(d))
 }

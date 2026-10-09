@@ -60,7 +60,7 @@
     return (v) => { r.value = v; paint(r); label(+r.value); };
   };
 
-  window.HushUI = { $, $$, css, invoke, toast, fail, checked, setChecked, seg, pressSeg };
+  window.HushUI = { $, $$, css, invoke, toast, fail, checked, setChecked, seg, pressSeg, bind };
 
   // ---------- Window and navigation ----------
   $("#winMin").addEventListener("click", () => appWindow.minimize());
@@ -71,6 +71,7 @@
     $$("nav button[data-view]").forEach((x) => x.removeAttribute("aria-current"));
     b.setAttribute("aria-current", "page");
     $$("[data-panel]").forEach((p) => (p.hidden = p.dataset.panel !== b.dataset.view));
+    document.dispatchEvent(new CustomEvent("hush:view", { detail: b.dataset.view }));
     resizeCanvases();
   }));
 
@@ -253,33 +254,6 @@
       btn.textContent = "Installera och starta om";
     });
   });
-
-  // ---------- Voice filter: preview until the feature ships ----------
-  const presets = [
-    ["Ingen", 0, 0], ["Filmtrailer", -5, -20], ["Rymdskurk", -8, -35], ["Sportkommentator", 2, 10],
-    ["Robot", 0, 0], ["Troll", -10, -45], ["Radio 1985", 1, 5], ["Helium", 9, 40],
-  ];
-
-  bind("#pitch", (v) => ($("#pitchOut").textContent = (v > 0 ? "+" : "") + v + " halvtoner"));
-  bind("#formant", (v) => ($("#formantOut").textContent = (v > 0 ? "+" : "") + v + " %"));
-  $("#preview").addEventListener("click", () => toast("Röstfilter kommer i en senare version"));
-
-  const presetBox = $("#presets");
-  presets.forEach(([name, p, f]) => {
-    const b = document.createElement("button");
-    b.className = "preset"; b.setAttribute("aria-pressed", String(name === "Ingen"));
-    const desc = name === "Robot" ? "Ringmodulator" : name === "Ingen" ? "Din egen röst" : (p > 0 ? "+" : "") + p + " st, " + (f > 0 ? "+" : "") + f + " %";
-    b.innerHTML = "<strong></strong><span></span>";
-    b.querySelector("strong").textContent = name; b.querySelector("span").textContent = desc;
-    b.addEventListener("click", () => {
-      $$(".preset").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
-      const pr = $("#pitch"), fo = $("#formant");
-      pr.value = p; fo.value = f; pr.dispatchEvent(new Event("input")); fo.dispatchEvent(new Event("input"));
-      setChecked($("#fxSwitch"), name !== "Ingen");
-    });
-    presetBox.appendChild(b);
-  });
-  $("#resetFx").addEventListener("click", () => presetBox.firstChild.click());
 
   // ---------- Drawing ----------
   function fit(c) {

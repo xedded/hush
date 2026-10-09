@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::audio::fx::FxSettings;
 use crate::audio::params::Mode;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -12,11 +13,12 @@ pub struct Settings {
     pub mode: Mode,
     pub suppression: f32,
     pub gate_dbfs: f32,
+    pub voice_fx: FxSettings,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { input_id: None, active: true, mode: Mode::Noise, suppression: 72.0, gate_dbfs: -42.0 }
+        Self { input_id: None, active: true, mode: Mode::Noise, suppression: 72.0, gate_dbfs: -42.0, voice_fx: FxSettings::default() }
     }
 }
 

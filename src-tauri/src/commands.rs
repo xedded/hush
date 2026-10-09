@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, State};
 
+use crate::audio::fx::FxSettings;
 use crate::audio::params::Mode;
 use crate::state::{AppState, UiState};
 use crate::tray;
@@ -63,7 +64,19 @@ pub async fn set_muted(app: AppHandle, state: AppStateRef<'_>, value: bool) -> R
 }
 
 #[tauri::command]
-pub async fn open_vbcable_page() -> Result<(), String> {
+pub async fn set_voice_fx(state: AppStateRef<'_>, value: FxSettings) -> Result<FxSettings, String> {
+    state.set_voice_fx(value);
+    Ok(state.params.fx())
+}
+
+/// Play the outgoing sound on the default playback device.
+#[tauri::command]
+pub async fn set_monitor(state: AppStateRef<'_>, value: bool) -> Result<(), String> {
+    state.set_monitor(value)
+}
+
+#[tauri::command]
+pub async fn open_vbcable_page()-> Result<(), String> {
     crate::virtual_mic::open_download_page().map_err(|_| "Webbläsaren kunde inte öppnas.".to_string())
 }
 

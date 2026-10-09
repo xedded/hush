@@ -28,6 +28,8 @@ struct Tick {
     #[serde(flatten)]
     levels: audio::telemetry::Snapshot,
     speaking: Option<String>,
+    /// "Listen to yourself" is playing; it switches itself off if the headphones go away.
+    monitoring: bool,
 }
 
 /// Push levels to the UI and restart the engine after device loss.
@@ -69,7 +71,11 @@ fn spawn_monitor(app: AppHandle, state: Arc<AppState>) {
                 if let Some(result) = state.speakers.take_enroll_result() {
                     let _ = app.emit("enrollment-done", result);
                 }
-                let _ = app.emit("telemetry", Tick { levels: state.telemetry.take(), speaking: state.speakers.speaking() });
+                let _ = app.emit("telemetry", Tick {
+                    levels: state.telemetry.take(),
+                    speaking: state.speakers.speaking(),
+                    monitoring: state.params.monitor(),
+                });
             }
         })
         .expect("spawn monitor thread");
@@ -125,6 +131,8 @@ pub fn run() {
             commands::set_unknown_policy,
             commands::start_enrollment,
             commands::cancel_enrollment,
+            commands::set_voice_fx,
+            commands::set_monitor,
             updater::check_update,
             updater::install_update,
         ])

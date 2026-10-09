@@ -33,6 +33,14 @@ Röstprofilerna sparas krypterat (AES-256, nyckeln i systemets nyckelring) och l
 
 Snabbkommando för att stänga av mikrofonen: Ctrl Alt M (Windows), ⌃⌥M (macOS).
 
+## Röstfilter
+
+Under **Röstfilter** ändrar du hur du låter: tonhöjd, röstkaraktär och klang (naturlig, robot
+eller radio), eller ett av förvalen. Filtret läggs på efter brusreduceringen och påverkar bara
+din egen röst. Det lägger till cirka 21 ms fördröjning medan det är på och är alltid avslaget
+när Hush startar. **Lyssna på dig själv** spelar upp det mötet hör i datorns
+standardutgång. Använd hörlurar, annars når ljudet mikrofonen igen.
+
 ## Utveckling
 
 ```

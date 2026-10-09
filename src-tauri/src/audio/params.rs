@@ -3,6 +3,8 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
 
+use super::fx::{FxSettings, Style};
+
 /// Strongest attenuation the suppression slider reaches, in dB.
 pub const MAX_ATTENUATION_DB: f32 = 45.0;
 pub const GATE_MIN_DBFS: f32 = -60.0;
@@ -59,6 +61,28 @@ pub struct Params {
     /// Suppression slider position, 0..=100.
     suppression: AtomicF32,
     gate_dbfs: AtomicF32,
+    fx_enabled: AtomicBool,
+    fx_pitch: AtomicF32,
+    fx_formant: AtomicF32,
+    fx_style: AtomicU8,
+    /// Play the outgoing sound on the default output so you can hear yourself.
+    monitor: AtomicBool,
+}
+
+fn style_to_u8(s: Style) -> u8 {
+    match s {
+        Style::Natural => 0,
+        Style::Robot => 1,
+        Style::Radio => 2,
+    }
+}
+
+fn style_from_u8(v: u8) -> Style {
+    match v {
+        1 => Style::Robot,
+        2 => Style::Radio,
+        _ => Style::Natural,
+    }
 }
 
 impl Params {
@@ -69,6 +93,11 @@ impl Params {
             mode: AtomicU8::new(mode.to_u8()),
             suppression: AtomicF32::default(),
             gate_dbfs: AtomicF32::new(GATE_MIN_DBFS),
+            fx_enabled: AtomicBool::new(false),
+            fx_pitch: AtomicF32::default(),
+            fx_formant: AtomicF32::default(),
+            fx_style: AtomicU8::new(0),
+            monitor: AtomicBool::new(false),
         };
         p.set_suppression(suppression);
         p.set_gate_dbfs(gate_dbfs);
@@ -117,6 +146,31 @@ impl Params {
         self.gate_dbfs.store(v);
     }
 
+    /// The four values are read separately; a change landing between two reads
+    /// shows up one hop later, which is inaudible.
+    pub fn fx(&self) -> FxSettings {
+        FxSettings {
+            enabled: self.fx_enabled.load(Ordering::Relaxed),
+            pitch: self.fx_pitch.load(),
+            formant: self.fx_formant.load(),
+            style: style_from_u8(self.fx_style.load(Ordering::Relaxed)),
+        }
+    }
+    pub fn set_fx(&self, s: FxSettings) {
+        let s = s.sanitized();
+        self.fx_pitch.store(s.pitch);
+        self.fx_formant.store(s.formant);
+        self.fx_style.store(style_to_u8(s.style), Ordering::Relaxed);
+        self.fx_enabled.store(s.enabled, Ordering::Relaxed);
+    }
+
+    pub fn monitor(&self) -> bool {
+        self.monitor.load(Ordering::Relaxed)
+    }
+    pub fn set_monitor(&self, v: bool) {
+        self.monitor.store(v, Ordering::Relaxed);
+    }
+
     /// True when the processing chain (suppression and gate) should run.
     pub fn processing(&self) -> bool {
         self.active() && self.mode() != Mode::Off
@@ -147,6 +201,17 @@ mod tests {
         assert_eq!(p.gate_dbfs(), GATE_MIN_DBFS);
         p.set_suppression(-3.0);
         assert_eq!(p.suppression(), 0.0);
+    }
+
+    #[test]
+    fn voice_filter_round_trips_and_is_clamped() {
+        let p = Params::new(true, Mode::Noise, 50.0, -40.0);
+        assert_eq!(p.fx(), FxSettings::default());
+        let s = FxSettings { enabled: true, pitch: -5.0, formant: 20.0, style: Style::Radio };
+        p.set_fx(s);
+        assert_eq!(p.fx(), s);
+        p.set_fx(FxSettings { pitch: 99.0, ..s });
+        assert_eq!(p.fx().pitch, 12.0);
     }
 
     #[test]

@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::audio::devices::{self, InputInfo};
 use crate::audio::engine::{Engine, EngineInfo};
+use crate::audio::fx::FxSettings;
 use crate::audio::params::{Mode, Params};
 use crate::audio::telemetry::Telemetry;
 use crate::settings::{Settings, Store};
@@ -22,6 +23,8 @@ pub struct UiState {
     pub mode: Mode,
     pub suppression: f32,
     pub gate_dbfs: f32,
+    pub voice_fx: FxSettings,
+    pub monitor: bool,
     pub engine: Option<EngineInfo>,
     pub error: Option<String>,
     pub virtual_mic: virtual_mic::Status,
@@ -49,6 +52,8 @@ impl AppState {
     pub fn new(store: Store, voices: VoiceStore) -> Self {
         let s = store.load();
         let params = Arc::new(Params::new(s.active, s.mode, s.suppression, s.gate_dbfs));
+        // The sound settings are kept, but a changed voice is never a surprise at start.
+        params.set_fx(FxSettings { enabled: false, ..s.voice_fx });
         Self {
             speakers: Speakers::start(voices, params.clone()),
             params,
@@ -65,6 +70,8 @@ impl AppState {
     pub fn restart_engine(&self) {
         let mut engine = lock(&self.engine);
         *engine = None;
+        // A new device may be the speakers: never start listening on it unasked.
+        self.params.set_monitor(false);
         let input_id = lock(&self.settings).input_id.clone();
         match Engine::start(input_id, self.params.clone(), self.telemetry.clone(), Some(self.speakers.link())) {
             Ok(e) => {
@@ -102,6 +109,8 @@ impl AppState {
             mode: self.params.mode(),
             suppression: self.params.suppression(),
             gate_dbfs: self.params.gate_dbfs(),
+            voice_fx: self.params.fx(),
+            monitor: self.params.monitor(),
             engine,
             error: lock(&self.error).clone(),
             virtual_mic: virtual_mic::status(),
@@ -110,13 +119,11 @@ impl AppState {
         }
     }
 
+    /// Saving under the lock keeps rapid changes (a dragged slider) in order on disk.
     fn update(&self, f: impl FnOnce(&mut Settings)) {
-        let snapshot = {
-            let mut s = lock(&self.settings);
-            f(&mut s);
-            s.clone()
-        };
-        self.store.save(&snapshot);
+        let mut s = lock(&self.settings);
+        f(&mut s);
+        self.store.save(&s);
     }
 
     pub fn select_input(&self, id: String) {
@@ -144,6 +151,24 @@ impl AppState {
         self.params.set_gate_dbfs(v);
         let v = self.params.gate_dbfs();
         self.update(|s| s.gate_dbfs = v);
+    }
+
+    pub fn set_voice_fx(&self, fx: FxSettings) {
+        self.params.set_fx(fx);
+        let fx = self.params.fx();
+        self.update(|s| s.voice_fx = fx);
+    }
+
+    /// Like muting, listening is not persisted: it needs headphones on.
+    pub fn set_monitor(&self, v: bool) -> Result<(), String> {
+        if v {
+            if !self.engine_running() {
+                return Err("Hush är inte igång.".into());
+            }
+            devices::monitor_output()?;
+        }
+        self.params.set_monitor(v);
+        Ok(())
     }
 
     /// Muting is deliberately not persisted: Hush always starts with the microphone live.

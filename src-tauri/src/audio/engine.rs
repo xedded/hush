@@ -1,4 +1,5 @@
-//! The audio engine: microphone -> DeepFilterNet -> voice gate -> virtual microphone.
+//! The audio engine: microphone -> DeepFilterNet -> voice gate -> speaker gate
+//! -> voice filter -> virtual microphone (and, on request, your own headphones).
 //!
 //! Three threads are involved. The cpal input callback downmixes to mono and
 //! pushes into a lock-free ring. A dedicated processing thread (which also owns
@@ -20,7 +21,9 @@ use ringbuf::traits::{Consumer, Observer, Producer, Split};
 use ringbuf::{HeapCons, HeapProd, HeapRb};
 
 use super::devices;
+use super::fx::{self, VoiceFx};
 use super::gate::Gate;
+use super::monitor::Monitor;
 use super::params::Params;
 use super::resample::Resampler;
 use super::telemetry::Telemetry;
@@ -28,7 +31,7 @@ use crate::speaker::service::{downsample_48k, Hop, Link};
 
 pub const ENGINE_RATE: u32 = 48_000;
 /// Silence queued ahead of the output to absorb scheduling jitter.
-const OUTPUT_PREFILL: usize = 960;
+pub(super) const OUTPUT_PREFILL: usize = 960;
 /// Beyond this much queued output (clock drift between devices) we drop back to the prefill level.
 const OUTPUT_MAX_QUEUE: usize = 4_800;
 const RING_SECONDS: usize = 1;
@@ -139,7 +142,8 @@ fn run(
         + (running.df.hop_size * (1 + running.df.lookahead) + OUTPUT_PREFILL) as f32 * 1000.0 / ENGINE_RATE as f32;
     telemetry.set_latency_ms(latency);
     let _ = ready.send(Ok(info));
-    process_loop(running, &params, &telemetry, speaker.as_ref(), &stop, &failure);
+    let ctx = Shared { params: &params, telemetry: &telemetry, speaker: speaker.as_ref(), base_latency_ms: latency };
+    process_loop(running, ctx, &stop, &failure);
 }
 
 fn setup(
@@ -252,7 +256,7 @@ where
     .context("Mikrofonen kunde inte öppnas.")
 }
 
-fn build_output(
+pub(super) fn build_output(
     dev: &Device,
     cfg: StreamConfig,
     mut cons: HeapCons<f32>,
@@ -277,14 +281,35 @@ fn build_output(
     .context("Den virtuella mikrofonen kunde inte öppnas.")
 }
 
-fn process_loop(
-    mut r: Running,
-    params: &Params,
-    telemetry: &Telemetry,
-    speaker: Option<&Link>,
-    stop: &AtomicBool,
-    failure: &Arc<Mutex<Option<String>>>,
-) {
+/// What the processing thread reads besides its own streams.
+struct Shared<'a> {
+    params: &'a Params,
+    telemetry: &'a Telemetry,
+    speaker: Option<&'a Link>,
+    /// Latency without a voice filter.
+    base_latency_ms: f32,
+}
+
+/// Open or close the "listen to yourself" stream to match the setting.
+/// A failure switches the setting off so the UI shows the real state.
+fn sync_monitor(monitor: &mut Option<Monitor>, params: &Params) {
+    if monitor.as_ref().is_some_and(Monitor::failed) {
+        log::warn!("monitor output stopped");
+        *monitor = None;
+        params.set_monitor(false);
+    }
+    match (params.monitor(), monitor.is_some()) {
+        (true, false) => *monitor = Some(Monitor::open()),
+        (false, true) => *monitor = None,
+        _ => {}
+    }
+}
+
+fn process_loop(mut r: Running, ctx: Shared, stop: &AtomicBool, failure: &Arc<Mutex<Option<String>>>) {
+    let Shared { params, telemetry, speaker, base_latency_ms } = ctx;
+    let mut fx = VoiceFx::new(ENGINE_RATE);
+    let mut fx_was_active = false;
+    let mut monitor: Option<Monitor> = None;
     let hop = r.df.hop_size;
     let mut speaker_gain = 1.0f32;
     let speaker_coef = (-1.0 / (SPEAKER_FADE_MS / 1000.0 * ENGINE_RATE as f32)).exp();
@@ -302,6 +327,7 @@ fn process_loop(
         if failure.lock().map(|f| f.is_some()).unwrap_or(false) {
             break;
         }
+        sync_monitor(&mut monitor, params);
         let n = r.in_cons.pop_slice(&mut raw);
         if n == 0 {
             std::thread::sleep(IDLE_WAIT);
@@ -339,11 +365,23 @@ fn process_loop(
             } else {
                 enhanced.copy_from_slice(frame);
             }
+            // The filter follows the speaker gate, so it only ever changes your own voice.
+            let mut voice = params.fx();
+            voice.enabled &= params.active();
+            fx.process(&mut enhanced, &voice);
+            if fx.active() != fx_was_active {
+                fx_was_active = fx.active();
+                let extra = if fx_was_active { fx::latency_ms(ENGINE_RATE) } else { 0.0 };
+                telemetry.set_latency_ms(base_latency_ms + extra);
+            }
             if params.muted() {
                 enhanced.fill(0.0);
             }
 
             telemetry.record_hop(frame, &enhanced, started.elapsed(), hop_duration);
+            if let Some(m) = monitor.as_mut() {
+                m.push(&enhanced);
+            }
             out_buf.clear();
             out_resampler.process(&enhanced, &mut out_buf);
             r.out_prod.push_slice(&out_buf);
@@ -380,11 +418,15 @@ mod tests {
         let wanted = std::env::var("HUSH_TEST_MIC").expect("set HUSH_TEST_MIC to part of a device name");
         let mic = devices::list_inputs().into_iter().find(|i| i.name.contains(&wanted)).expect("microphone not found");
         let params = Arc::new(Params::new(true, crate::audio::params::Mode::Noise, 72.0, -42.0));
-        let engine = Engine::start(Some(mic.id), params, Arc::new(Telemetry::default()), None).expect("engine starts");
+        params.set_fx(fx::FxSettings { enabled: true, pitch: -5.0, formant: -20.0, style: fx::Style::Natural });
+        let telemetry = Arc::new(Telemetry::default());
+        let engine = Engine::start(Some(mic.id), params, telemetry.clone(), None).expect("engine starts");
         println!("running on {} (bluetooth: {})", engine.info().input_name, engine.info().bluetooth_quality);
         for second in 1..=15 {
             std::thread::sleep(Duration::from_secs(1));
             assert_eq!(engine.failure(), None, "engine failed after {second} s");
+            let t = telemetry.take();
+            println!("{second:>2} s: cpu {:.1} %, latency {:.0} ms", t.cpu_pct, t.latency_ms);
         }
     }
 

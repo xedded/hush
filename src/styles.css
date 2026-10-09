@@ -227,7 +227,7 @@ main { overflow-y: auto; }
 .mute-row:hover { color: var(--fg); }
 .mute-row[aria-pressed="true"] { color: var(--warn); }
 .notice .btn.mini { margin-left: 4px; color: var(--fg); }
-.preview-note { margin: 6px 0 0; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 [hidden] { display: none !important; }
 .lib-who { min-width: 0; flex: 1; }
 .lib-who .lib-name { max-width: 28ch; }
