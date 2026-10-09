@@ -1,4 +1,5 @@
 pub mod biquad;
+pub mod calibrate;
 pub mod devices;
 pub mod engine;
 pub mod enhance;

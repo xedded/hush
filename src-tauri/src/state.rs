@@ -78,6 +78,14 @@ impl AppState {
         let input_id = lock(&self.settings).input_id.clone();
         match Engine::start(input_id, self.params.clone(), self.telemetry.clone(), Some(self.speakers.link())) {
             Ok(e) => {
+                let i = e.info();
+                log::info!("engine running: {} at {} Hz (bluetooth: {})", i.input_name, i.input_rate, i.bluetooth_quality);
+                // Each microphone keeps its own voice gate.
+                let saved = lock(&self.settings).gate_by_input.get(&i.input_id).copied();
+                if let Some(gate) = saved {
+                    self.params.set_gate_dbfs(gate);
+                    lock(&self.settings).gate_dbfs = gate;
+                }
                 *engine = Some(e);
                 *lock(&self.error) = None;
             }
@@ -92,6 +100,7 @@ impl AppState {
     pub fn reap_failed_engine(&self) -> bool {
         let mut engine = lock(&self.engine);
         let Some(msg) = engine.as_ref().and_then(Engine::failure) else { return false };
+        log::warn!("engine stopped: {msg}");
         *engine = None;
         *lock(&self.error) = Some(msg);
         true
@@ -151,10 +160,28 @@ impl AppState {
         self.update(|s| s.suppression = v);
     }
 
-    pub fn set_gate(&self, v: f32) {
+    /// Remembered for the microphone in use, so switching microphones brings its own gate back.
+    pub fn set_gate(&self, v: f32) -> f32 {
         self.params.set_gate_dbfs(v);
         let v = self.params.gate_dbfs();
-        self.update(|s| s.gate_dbfs = v);
+        let input = lock(&self.engine).as_ref().map(|e| e.info().input_id.clone());
+        self.update(|s| {
+            s.gate_dbfs = v;
+            if let Some(id) = input.or_else(|| s.input_id.clone()) {
+                s.gate_by_input.insert(id, v);
+            }
+        });
+        v
+    }
+
+    /// Record the gate detector for a few seconds, for calibration.
+    pub fn measure_levels(&self, seconds: f32) -> Result<Vec<f32>, String> {
+        if !self.engine_running() || !self.params.processing() {
+            return Err("Slå på Hush och välj Dämpa bakgrundsljud innan du kalibrerar.".into());
+        }
+        self.telemetry.levels.start();
+        std::thread::sleep(std::time::Duration::from_secs_f32(seconds.clamp(1.0, 10.0)));
+        Ok(self.telemetry.levels.stop())
     }
 
     pub fn set_voice_fx(&self, fx: FxSettings) {

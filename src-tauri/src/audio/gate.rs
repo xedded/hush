@@ -20,6 +20,8 @@ pub struct Gate {
     open_coef: f32,
     close_coef: f32,
     floor: f32,
+    /// Loudest detector value in the last block, for calibration.
+    block_peak: f32,
 }
 
 fn coef(ms: f32, sample_rate: f32) -> f32 {
@@ -43,7 +45,13 @@ impl Gate {
             open_coef: coef(OPEN_MS, sr),
             close_coef: coef(CLOSE_MS, sr),
             floor: db_to_lin(FLOOR_DB),
+            block_peak: 0.0,
         }
+    }
+
+    /// Loudest level the detector saw in the last block, in dBFS.
+    pub fn level_db(&self) -> f32 {
+        20.0 * self.block_peak.max(1e-6).log10()
     }
 
     pub fn is_open(&self) -> bool {
@@ -54,6 +62,7 @@ impl Gate {
     pub fn process(&mut self, block: &mut [f32], threshold_dbfs: f32) {
         let open_at = db_to_lin(threshold_dbfs);
         let close_at = db_to_lin(threshold_dbfs - HYSTERESIS_DB);
+        self.block_peak = 0.0;
         for s in block.iter_mut() {
             let level = s.abs();
             self.envelope = if level > self.envelope {
@@ -61,6 +70,7 @@ impl Gate {
             } else {
                 level + self.detector_release * (self.envelope - level)
             };
+            self.block_peak = self.block_peak.max(self.envelope);
 
             if self.envelope >= open_at {
                 self.open = true;

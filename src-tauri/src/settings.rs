@@ -1,5 +1,6 @@
 //! User settings persisted as JSON in the app config directory.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::audio::enhance::EnhanceSettings;
@@ -14,13 +15,24 @@ pub struct Settings {
     pub mode: Mode,
     pub suppression: f32,
     pub gate_dbfs: f32,
+    /// The voice gate per microphone id: each microphone and room needs its own.
+    pub gate_by_input: BTreeMap<String, f32>,
     pub voice_fx: FxSettings,
     pub voice_enhance: EnhanceSettings,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { input_id: None, active: true, mode: Mode::Noise, suppression: 72.0, gate_dbfs: -42.0, voice_fx: FxSettings::default(), voice_enhance: EnhanceSettings::default() }
+        Self {
+            input_id: None,
+            active: true,
+            mode: Mode::Noise,
+            suppression: 72.0,
+            gate_dbfs: -42.0,
+            gate_by_input: BTreeMap::new(),
+            voice_fx: FxSettings::default(),
+            voice_enhance: EnhanceSettings::default(),
+        }
     }
 }
 

@@ -81,18 +81,58 @@ fn spawn_monitor(app: AppHandle, state: Arc<AppState>) {
         .expect("spawn monitor thread");
 }
 
+/// Log to a file in the app log folder (and the console in development).
+/// Two files of 2 MB are kept, enough for days of normal use.
+fn log_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
+    tauri_plugin_log::Builder::new()
+        .targets([Target::new(TargetKind::LogDir { file_name: Some("hush".into()) }), Target::new(TargetKind::Stdout)])
+        .level(log::LevelFilter::Info)
+        // The model runtime is chatty below warnings.
+        .level_for("tract_core", log::LevelFilter::Warn)
+        .level_for("tract_onnx", log::LevelFilter::Warn)
+        .level_for("tract_hir", log::LevelFilter::Warn)
+        .max_file_size(2_000_000)
+        .rotation_strategy(RotationStrategy::KeepSome(2))
+        .timezone_strategy(TimezoneStrategy::UseLocal)
+        .build()
+}
+
+/// Panics end up in the log file too, so a crash can be diagnosed afterwards.
+fn log_panics() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("panic: {info}");
+        default(info);
+    }));
+}
+
+/// Passed by the login item: start in the tray without showing the window.
+const HIDDEN_ARG: &str = "--hidden";
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(log_plugin())
         .plugin(tray::shortcut_plugin())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // Started at login with --hidden: Hush goes straight to the tray.
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![HIDDEN_ARG])))
         .setup(|app| {
+            log_panics();
+            log::info!("Hush {} on {} {}", app.package_info().version, std::env::consts::OS, std::env::consts::ARCH);
             let dir = app.path().app_config_dir()?;
             let voices = speaker::library::Store::new(&app.path().app_data_dir()?, Box::new(speaker::library::Keychain));
             let state = Arc::new(AppState::new(settings::Store::new(&dir), voices));
             app.manage(state.clone());
 
             tray::install(app.handle())?;
+            // The window starts hidden (tauri.conf.json) so a login start never flashes it.
+            if !std::env::args().any(|a| a == HIDDEN_ARG) {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                }
+            }
             tray::register_shortcuts(app.handle());
             updater::spawn_checks(app.handle().clone());
 
@@ -114,23 +154,29 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
+            commands::get_autostart,
+            commands::open_log_folder,
+            commands::set_autostart,
             commands::select_input,
             commands::restart_engine,
             commands::set_active,
             commands::set_mode,
             commands::set_suppression,
             commands::set_gate,
+            commands::measure_levels,
+            commands::apply_gate_calibration,
             commands::set_muted,
             commands::open_vbcable_page,
             commands::rename_virtual_mic,
             commands::get_voices,
-            commands::set_voice_on,
             commands::rename_voice,
             commands::set_voice_default,
             commands::delete_voice,
             commands::set_unknown_policy,
             commands::start_enrollment,
             commands::cancel_enrollment,
+            commands::get_stats,
+            commands::reset_stats,
             commands::set_voice_fx,
             commands::set_monitor,
             commands::set_voice_enhance,

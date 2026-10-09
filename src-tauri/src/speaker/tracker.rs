@@ -12,6 +12,12 @@ const ME_MATCH: f32 = 0.4;
 const ME_BIAS: f32 = 0.05;
 /// Score above which a match is used to refine the stored print.
 const CONFIDENT: f32 = 0.65;
+/// The user's print learns only from speech that is clearly the user: this
+/// close to the current print, this far ahead of every other voice, and still
+/// close to the original recording so the profile can never drift to someone else.
+const ME_ADAPT: f32 = 0.7;
+const ME_ADAPT_MARGIN: f32 = 0.2;
+const ME_ANCHOR_MIN: f32 = 0.6;
 /// Below this against everyone, the speech may be a new voice.
 const NEW_VOICE_BELOW: f32 = 0.35;
 /// Unmatched embeddings (about 0.5 s each) needed before a new voice is created.
@@ -60,6 +66,10 @@ impl Tracker {
         // so the user's own voice wins at a lower score and on near-ties.
         if me_score >= ME_MATCH && me_score + ME_BIAS >= voice_score {
             self.pending.clear();
+            let anchored = lib.me_anchor.as_ref().is_none_or(|a| cosine(a, emb) >= ME_ANCHOR_MIN);
+            if me_score >= ME_ADAPT && me_score - voice_score.max(0.0) >= ME_ADAPT_MARGIN && anchored {
+                lib.reinforce_me(emb);
+            }
             return Observation { who: Who::Me, score: me_score, created: None };
         }
         if let Some((id, score)) = best_voice.filter(|b| b.1 >= MATCH) {
@@ -127,6 +137,44 @@ mod tests {
         v[(axis + 1) % 8] = wobble;
         super::super::embedder::normalize(&mut v);
         v
+    }
+
+    #[test]
+    fn own_profile_adapts_only_to_clear_matches() {
+        let mut lib = Library::default();
+        lib.set_me(voice(0, 0.0), 30);
+        let mut t = Tracker::default();
+        let before = lib.me.clone().unwrap();
+        // A clear match of the user moves the print a little towards it.
+        t.observe(&mut lib, &voice(0, 0.3), TODAY);
+        let moved = lib.me.clone().unwrap();
+        assert!(moved != before && cosine(&moved, &before) > 0.99);
+        // A near match that also resembles a known voice does not.
+        lib.voices.push(crate::speaker::library::Voice {
+            id: "v2".into(), name: "Röst 2".into(), named: false, default: Policy::Pass,
+            print: voice(1, 0.0), weight: 10, last_heard: TODAY.into(), stats: Default::default(),
+        });
+        let mut mixed = voice(0, 0.0);
+        mixed[1] = 0.8;
+        super::super::embedder::normalize(&mut mixed);
+        t.observe(&mut lib, &mixed, TODAY);
+        assert_eq!(lib.me.clone().unwrap(), moved);
+    }
+
+    #[test]
+    fn profile_never_drifts_far_from_the_recording() {
+        let mut lib = Library::default();
+        lib.set_me(voice(0, 0.0), 1);
+        let mut t = Tracker::default();
+        // Each step is a clear match of the current print but walks steadily away.
+        for step in 1..200 {
+            let mut e = lib.me.clone().unwrap();
+            e[2] += 0.05 * step as f32;
+            super::super::embedder::normalize(&mut e);
+            t.observe(&mut lib, &e, TODAY);
+        }
+        let anchor = lib.me_anchor.clone().unwrap();
+        assert!(cosine(&anchor, lib.me.as_ref().unwrap()) > ME_ANCHOR_MIN - 0.1);
     }
 
     #[test]

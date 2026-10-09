@@ -13,6 +13,7 @@ use anyhow::{anyhow, Result};
 
 use super::embedder::{self, Embedder, WINDOW_SAMPLES};
 use super::library::{Library, Policy, Store};
+use super::tally::Tally;
 use super::tracker::{self, Tracker, Who};
 use crate::audio::params::{Mode, Params};
 
@@ -58,9 +59,9 @@ impl Link {
     }
 }
 
+/// A voice heard recently: drives "Pratar nu" and the activity lane.
 struct SessionVoice {
     id: String,
-    on: bool,
     last: Instant,
     score: f32,
 }
@@ -98,25 +99,20 @@ pub struct EnrollResult {
     pub message: String,
 }
 
+/// One voice in the library. Its single choice, heard or muted, applies at
+/// once and is remembered for the next meeting.
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SessionView {
+pub struct VoiceView {
     pub id: String,
     pub name: String,
     pub named: bool,
-    pub me: bool,
-    pub on: bool,
-    pub score: f32,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LibraryView {
-    pub id: String,
-    pub name: String,
-    pub named: bool,
-    pub default: Policy,
+    pub heard: bool,
     pub last_heard: String,
+    /// Heard in the last 15 minutes.
+    pub recent: bool,
+    /// Latest match score while recent.
+    pub score: Option<f32>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -132,17 +128,26 @@ pub struct VoicesView {
     pub enrolled: bool,
     pub enrollment: Option<EnrollView>,
     pub unknown: Policy,
-    pub session: Vec<SessionView>,
-    pub library: Vec<LibraryView>,
+    /// Recently heard voices first, then by when they were last heard.
+    pub voices: Vec<VoiceView>,
     pub error: Option<String>,
 }
 
 /// Today's date (UTC) as YYYY-MM-DD, without a date library.
 pub fn today() -> String {
-    let days = std::time::SystemTime::now()
+    civil_date(day_number())
+}
+
+fn day_number() -> i64 {
+    std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() / 86_400) as i64;
-    civil_date(days)
+        .map_or(0, |d| d.as_secs() / 86_400) as i64
+}
+
+/// The last `n` dates, oldest first, ending today.
+pub fn recent_days(n: usize) -> Vec<String> {
+    let today = day_number();
+    (0..n as i64).rev().map(|back| civil_date(today - back)).collect()
 }
 
 /// Days since 1970-01-01 to a calendar date (Howard Hinnant's algorithm).
@@ -238,26 +243,27 @@ impl Speakers {
     pub fn view(&self) -> VoicesView {
         let lib = lock(&self.shared.lib);
         let session = lock(&self.shared.session);
-        let mut rows = Vec::new();
-        if lib.me.is_some() {
-            rows.push(SessionView { id: "me".into(), name: "Din röst".into(), named: true, me: true, on: true, score: 1.0 });
-        }
-        rows.extend(session.iter().filter_map(|s| {
-            let v = lib.voice(&s.id)?;
-            Some(SessionView { id: v.id.clone(), name: v.name.clone(), named: v.named, me: false, on: s.on, score: s.score })
-        }));
-        let mut library: Vec<LibraryView> = lib
+        let recent = |id: &str| session.iter().find(|s| s.id == id);
+        let mut voices: Vec<VoiceView> = lib
             .voices
             .iter()
-            .map(|v| LibraryView {
+            .map(|v| VoiceView {
                 id: v.id.clone(),
                 name: v.name.clone(),
                 named: v.named,
-                default: v.default,
+                heard: v.default == Policy::Pass,
                 last_heard: v.last_heard.clone(),
+                recent: recent(&v.id).is_some(),
+                score: recent(&v.id).map(|s| s.score),
             })
             .collect();
-        library.sort_by(|a, b| b.last_heard.cmp(&a.last_heard).then_with(|| a.name.cmp(&b.name)));
+        let since = |id: &str| recent(id).map(|s| s.last.elapsed());
+        voices.sort_by(|a, b| match (since(&a.id), since(&b.id)) {
+            (Some(x), Some(y)) => x.cmp(&y),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => b.last_heard.cmp(&a.last_heard).then_with(|| a.name.cmp(&b.name)),
+        });
         VoicesView {
             enrolled: lib.me.is_some(),
             enrollment: lock(&self.shared.enrollment).as_ref().map(|e| EnrollView {
@@ -265,19 +271,18 @@ impl Speakers {
                 needed: ENROLL_SECONDS,
             }),
             unknown: lib.unknown_policy(),
-            session: rows,
-            library,
+            voices,
             error: lock(&self.shared.error).clone(),
         }
     }
 
-    pub fn set_voice_on(&self, id: &str, on: bool) -> Result<()> {
-        let mut session = lock(&self.shared.session);
-        let s = session.iter_mut().find(|s| s.id == id).ok_or_else(|| anyhow!("Rösten är inte med i mötet."))?;
-        s.on = on;
-        drop(session);
-        self.changed();
-        Ok(())
+    pub fn stats(&self) -> super::stats::StatsView {
+        super::stats::view(&lock(&self.shared.lib))
+    }
+
+    pub fn reset_stats(&self) -> Result<()> {
+        lock(&self.shared.lib).reset_stats();
+        self.save_now()
     }
 
     pub fn rename(&self, id: &str, name: &str) -> Result<()> {
@@ -335,6 +340,8 @@ struct Worker {
     last_save: Instant,
     last_expiry: Instant,
     last_enroll_tick: f32,
+    tally: Tally,
+    saved_changes: u64,
 }
 
 impl Worker {
@@ -355,6 +362,8 @@ impl Worker {
             last_save: Instant::now(),
             last_expiry: Instant::now(),
             last_enroll_tick: 0.0,
+            tally: Tally::new(RATE),
+            saved_changes: 0,
         }
     }
 
@@ -395,8 +404,9 @@ impl Worker {
 
         if !hop.speech {
             self.silence += hop.samples.len();
-            if self.silence >= TURN_GAP {
+            if self.silence >= TURN_GAP && self.in_turn {
                 self.in_turn = false;
+                self.tally.end_turn(&mut lock(&self.shared.lib), &today());
                 lock(&self.shared.live).speaking = None;
             }
             return;
@@ -410,6 +420,7 @@ impl Worker {
             self.tracker.new_turn();
         }
         self.silence = 0;
+        self.tally.hop(&hop.samples);
         self.turn.extend_from_slice(&hop.samples);
         if self.turn.len() > WINDOW_SAMPLES {
             let excess = self.turn.len() - WINDOW_SAMPLES;
@@ -438,12 +449,13 @@ impl Worker {
         let day = today();
         let obs = {
             let mut lib = lock(&self.shared.lib);
-            let weights_before: u32 = lib.voices.iter().map(|v| v.weight).sum();
             let obs = self.tracker.observe(&mut lib, &emb, &day);
-            let weights_after: u32 = lib.voices.iter().map(|v| v.weight).sum();
-            if obs.created.is_some() || weights_after != weights_before {
-                self.shared.dirty.store(true, Ordering::Relaxed);
-            }
+            let who = match &obs.who {
+                Who::Me => Some("me"),
+                Who::Voice(id) => Some(id.as_str()),
+                Who::Unknown => None,
+            };
+            self.tally.speaker(who, &mut lib, &day);
             obs
         };
         self.turn_ids += 1;
@@ -454,12 +466,13 @@ impl Worker {
             Who::Voice(id) => self.note_voice(id, obs.score),
             Who::Unknown => {}
         }
-        if obs.created.is_some() {
+        if let Some(id) = &obs.created {
+            log::info!("new voice {id}");
             self.bump();
         }
     }
 
-    /// Put a recognised voice on the meeting list (with its default) or refresh it.
+    /// Mark a recognised voice as heard just now.
     fn note_voice(&self, id: &str, score: f32) {
         let mut session = lock(&self.shared.session);
         if let Some(s) = session.iter_mut().find(|s| s.id == id) {
@@ -467,20 +480,18 @@ impl Worker {
             s.score = score;
             return;
         }
-        let on = lock(&self.shared.lib).voice(id).is_some_and(|v| v.default == Policy::Pass);
-        session.push(SessionVoice { id: id.to_string(), on, last: Instant::now(), score });
+        session.push(SessionVoice { id: id.to_string(), last: Instant::now(), score });
         drop(session);
         self.bump();
     }
 
     fn decide(&self) {
         let only_me = self.params.mode() == Mode::Me;
-        let unknown = lock(&self.shared.lib).unknown_policy();
         let me_recent = self.last_me.is_some_and(|t| t.elapsed() < ME_RECENT);
-        let session = lock(&self.shared.session);
-        let on = |id: &str| session.iter().find(|s| s.id == id).is_some_and(|s| s.on);
-        let pass = tracker::allowed(&self.current, only_me, on, unknown, me_recent && self.turn_ids == 0);
-        drop(session);
+        let lib = lock(&self.shared.lib);
+        let heard = |id: &str| lib.voice(id).is_some_and(|v| v.default == Policy::Pass);
+        let pass = tracker::allowed(&self.current, only_me, heard, lib.unknown_policy(), me_recent && self.turn_ids == 0);
+        drop(lib);
         self.allow.store(pass, Ordering::Relaxed);
         lock(&self.shared.live).speaking = Some(match &self.current {
             Who::Me => "me".to_string(),
@@ -526,7 +537,8 @@ impl Worker {
         if consistency < ENROLL_CONSISTENCY {
             return fail("Det hördes flera röster eller mycket bakgrundsljud. Försök igen i ett tystare rum.");
         }
-        lock(&self.shared.lib).me = Some(print);
+        log::info!("voice profile recorded: {} windows, consistency {consistency:.2}", windows.len());
+        lock(&self.shared.lib).set_me(print, windows.len() as u32);
         self.last_me = Some(Instant::now());
         let lib = lock(&self.shared.lib).clone();
         match self.shared.store.save(&lib) {
@@ -539,6 +551,15 @@ impl Worker {
     }
 
     fn housekeeping(&mut self) {
+        {
+            let mut lib = lock(&self.shared.lib);
+            self.tally.flush_if_due(&mut lib, &today());
+            // Prints, new voices and statistics all count as changes worth saving.
+            if lib.changes != self.saved_changes {
+                self.saved_changes = lib.changes;
+                self.shared.dirty.store(true, Ordering::Relaxed);
+            }
+        }
         if self.last_expiry.elapsed() >= Duration::from_secs(30) {
             self.last_expiry = Instant::now();
             let mut session = lock(&self.shared.session);
@@ -630,11 +651,17 @@ mod service_tests {
         assert!(speakers.take_enroll_result().unwrap().ok);
 
         feed(&link, &zira);
-        wait_for("stranger to be learned", || speakers.view().library.len() == 1);
-        let view = speakers.view();
-        let stranger = view.session.iter().find(|v| !v.me).expect("stranger in meeting");
-        assert!(!stranger.on, "unknown policy is mute, so the new voice starts muted");
+        wait_for("stranger to be learned", || speakers.view().voices.len() == 1);
+        let stranger = speakers.view().voices[0].clone();
+        assert!(stranger.recent, "a voice just learned counts as heard now");
+        assert!(!stranger.heard, "unknown policy is mute, so the new voice starts muted");
         assert!(!link.allow(), "stranger must not pass");
+
+        // One switch: letting the voice through applies at once and is saved.
+        speakers.set_default(&stranger.id, Policy::Pass).unwrap();
+        feed(&link, &zira);
+        wait_for("stranger to pass once heard is on", || link.allow());
+        assert!(Store::new(&dir, Box::new(FixedKey)).load().unwrap().voices[0].default == Policy::Pass);
 
         feed(&link, &david_b);
         wait_for("user to pass again", || link.allow());

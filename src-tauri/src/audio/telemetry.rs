@@ -41,6 +41,8 @@ struct Inner {
 #[derive(Default)]
 pub struct Telemetry {
     inner: Mutex<Inner>,
+    /// Gate detector levels while the voice gate is being calibrated.
+    pub levels: super::calibrate::Recorder,
 }
 
 pub fn lin_to_db(v: f32) -> f32 {

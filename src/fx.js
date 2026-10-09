@@ -1,7 +1,6 @@
-// Voice filter view: pitch, voice character and style, plus "listen to
-// yourself" through the default playback device.
+// Voice filter view: pitch, voice character and style.
 (() => {
-  const { $, $$, invoke, toast, fail, checked, setChecked, seg, pressSeg, bind } = window.HushUI;
+  const { $, invoke, fail, checked, setChecked, seg, pressSeg, bind } = window.HushUI;
 
   const PRESETS = [
     { name: "Ingen", desc: "Din egen röst", off: true },
@@ -13,12 +12,10 @@
     { name: "Radio 1985", pitch: 0, formant: 10, style: "radio", desc: "Liten högtalare" },
     { name: "Helium", pitch: 9, formant: 40 },
   ];
-  // Telemetry sent before a change landed can still be on its way.
+  // A state broadcast can predate the change just sent.
   const SETTLE_MS = 400;
 
   let fx = { enabled: false, pitch: 0, formant: 0, style: "natural" };
-  let monitoring = false;
-  let monitorChanged = 0;
 
   const signed = (v) => (v > 0 ? "+" : "") + v;
   const describe = (p) => p.desc || signed(p.pitch) + " st, " + signed(p.formant) + " %";
@@ -72,39 +69,10 @@
     setFormant(fx.formant);
     pressSeg($("#styleSeg"), "style", fx.style);
     presetButtons.forEach(([b, p]) => b.setAttribute("aria-pressed", String(matches(p))));
-    $("#listen").setAttribute("aria-pressed", String(monitoring));
-    $("#listenLabel").textContent = monitoring ? "Sluta lyssna" : "Lyssna på dig själv";
   }
-
-  function setMonitor(value) {
-    const btn = $("#listen");
-    btn.disabled = true;
-    return invoke("set_monitor", { value })
-      .then(() => { monitoring = value; monitorChanged = Date.now(); render(); })
-      .catch(fail)
-      .finally(() => (btn.disabled = false));
-  }
-  $("#listen").addEventListener("click", () => setMonitor(!monitoring));
-
-  // Listening is only for trying out the filter; never leave it running unseen.
-  document.addEventListener("hush:view", (e) => {
-    if (e.detail !== "fx" && monitoring) setMonitor(false);
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden && monitoring) setMonitor(false);
-  });
-
-  window.__TAURI__.event.listen("telemetry", ({ payload: t }) => {
-    if (t.monitoring === monitoring || Date.now() - monitorChanged < SETTLE_MS) return;
-    if (monitoring) toast("Uppspelningen stoppades. Kontrollera hörlurarna.");
-    monitoring = t.monitoring;
-    render();
-  });
 
   const apply = (s) => {
-    // A state broadcast can predate the change just sent; keep what the user sees.
     if (Date.now() - lastSent > SETTLE_MS) fx = s.voiceFx;
-    monitoring = s.monitor;
     render();
   };
   window.__TAURI__.event.listen("state", ({ payload }) => apply(payload));

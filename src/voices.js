@@ -1,5 +1,5 @@
-// Voices view: the user's voice profile, voices heard in this meeting and the
-// voice library. All data comes from the speaker service in the backend.
+// Voices view: the user's voice profile and one list of known voices, each with
+// a single heard/muted choice. All data comes from the speaker service.
 (() => {
   const { $, $$, css, invoke, toast, fail, setChecked, seg, pressSeg } = window.HushUI;
   const ui = window.HushUI;
@@ -23,6 +23,10 @@
     for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
     return PALETTE[h % PALETTE.length];
   };
+
+  // The statistics page uses the same colours.
+  ui.colorFor = colorFor;
+  ui.dateLabel = (iso) => heardLabel(iso);
 
   const heardLabel = (iso) => {
     const today = new Date().toISOString().slice(0, 10);
@@ -73,88 +77,88 @@
     $("#enrollCount").textContent = Math.floor(e.seconds) + " av " + e.needed + " s";
   }
 
-  function renderSession() {
-    const list = $("#voiceList"); list.textContent = "";
-    $("#sessionPanel").hidden = !view.enrolled || !!view.enrollment;
-    const others = view.session.filter((v) => !v.me);
-    $("#sessionEmpty").hidden = others.length > 0;
-    pressSeg($("#unknownSeg"), "u", view.unknown);
-
-    view.session.forEach((v) => {
-      const row = document.createElement("div");
-      row.className = "voice" + (v.on ? "" : " muted");
-      row.innerHTML = `
-        <div class="who"><i class="swatch"></i><div class="who-text">
-          <div class="who-name"></div><div class="who-meta"></div></div></div>
-        <canvas height="28"></canvas>
-        <div class="match"></div>
-        <button class="switch" role="switch"></button>`;
-      row.querySelector(".swatch").style.background = colorFor(v.id);
-      const nameBox = row.querySelector(".who-name");
-      if (v.me) {
-        nameBox.textContent = "Din röst";
-        const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = "Profil"; nameBox.appendChild(tag);
-      } else {
-        nameBox.appendChild(nameField(v));
-      }
-      row.querySelector(".who-meta").textContent = v.me ? "Släpps alltid igenom" : v.named ? "Känd röst" : "Ny röst, ge den ett namn";
-      row.querySelector(".match").textContent = v.me ? "" : Math.round(v.score * 100) + " % träff";
-      const sw = row.querySelector(".switch");
-      setChecked(sw, v.on);
-      sw.setAttribute("aria-label", (v.on ? "Stäng av " : "Släpp igenom ") + v.name);
-      sw.addEventListener("click", () => {
-        if (v.me) { toast("Din egen röst släpps alltid igenom"); return; }
-        const on = !v.on;
-        const turnOffOnlyMe = on && ui.mode() === "me" ? ui.setMode("noise") : Promise.resolve();
-        apply(turnOffOnlyMe.then(() => invoke("set_voice_on", { id: v.id, on })));
-      });
-      const lane = lanes.get(v.id) || { hist: new Array(LANE_HISTORY).fill(0) };
-      Object.assign(lane, { canvas: row.querySelector("canvas"), on: v.on, color: colorFor(v.id) });
-      lanes.set(v.id, lane);
-      list.appendChild(row);
-    });
-    for (const id of lanes.keys()) if (!view.session.some((v) => v.id === id)) lanes.delete(id);
-    ui.resizeCanvases();
+  function renderOnlyMe() {
+    $("#onlyMeNote").hidden = !view || !view.enrolled || !!view.enrollment || ui.mode() !== "me";
   }
 
-  function renderLibrary() {
-    const box = $("#library"); box.textContent = "";
-    const lib = view.library;
-    $("#libCount").textContent = lib.length + (lib.length === 1 ? " röst" : " röster");
-    if (!lib.length) {
-      const empty = document.createElement("div"); empty.className = "list-row";
-      empty.innerHTML = '<div style="color:var(--muted)">Inga röster än. Röster som Hush hör i möten hamnar här.</div>';
-      box.appendChild(empty); return;
-    }
-    lib.forEach((v) => {
-      const row = document.createElement("div"); row.className = "list-row";
-      row.innerHTML = `<div class="lib-who"><div class="who-name"></div><p></p></div>
-        <div class="lib-actions">
-          <div class="seg" role="group"><button data-d="pass">Hörs</button><button data-d="mute">Tystas</button></div>
-          <button class="btn icon" aria-label="Ta bort">${TRASH}</button>
-        </div>`;
-      row.querySelector(".who-name").appendChild(nameField(v));
-      row.querySelector("p").textContent = (v.named ? "" : "Inte namngiven, ") + "senast hörd " + heardLabel(v.lastHeard);
-      const sg = row.querySelector(".seg"); sg.setAttribute("aria-label", "Standard för " + v.name);
-      pressSeg(sg, "d", v.default);
-      seg(sg, (b) => apply(invoke("set_voice_default", { id: v.id, policy: b.dataset.d })));
-      // Deleting a voiceprint is permanent, so it takes a second click to confirm.
-      const del = row.querySelector(".icon");
-      let armed = false, disarm;
-      del.addEventListener("click", () => {
-        if (!armed) {
-          armed = true; del.classList.add("armed"); del.setAttribute("aria-label", "Bekräfta borttagning");
-          toast("Klicka igen för att ta bort " + v.name + " permanent");
-          disarm = setTimeout(() => { armed = false; del.classList.remove("armed"); del.setAttribute("aria-label", "Ta bort"); }, 3000);
-          return;
-        }
-        clearTimeout(disarm);
-        invoke("delete_voice", { id: v.id })
-          .then((s) => { render(s); toast(v.name + " borttagen. Röstprofilen är raderad."); })
-          .catch(fail);
-      });
-      box.appendChild(row);
+  // Deleting a voiceprint is permanent, so it takes a second click to confirm.
+  function deleteButton(v) {
+    const del = document.createElement("button");
+    del.className = "btn icon"; del.innerHTML = TRASH;
+    del.setAttribute("aria-label", "Ta bort " + v.name); del.title = "Ta bort";
+    let armed = false, disarm;
+    del.addEventListener("click", () => {
+      if (!armed) {
+        armed = true; del.classList.add("armed"); del.setAttribute("aria-label", "Bekräfta borttagning");
+        toast("Klicka igen för att ta bort " + v.name + " permanent");
+        disarm = setTimeout(() => { armed = false; del.classList.remove("armed"); del.setAttribute("aria-label", "Ta bort " + v.name); }, 3000);
+        return;
+      }
+      clearTimeout(disarm);
+      invoke("delete_voice", { id: v.id })
+        .then((s) => { render(s); toast(v.name + " borttagen. Röstavtrycket är raderat."); })
+        .catch(fail);
     });
+    return del;
+  }
+
+  function voiceRow(v) {
+    const me = v.id === "me";
+    const row = document.createElement("div");
+    row.className = "voice" + (me || v.heard ? "" : " muted");
+    row.innerHTML = `
+      <div class="who"><i class="swatch"></i><div class="who-text">
+        <div class="who-name"></div><div class="who-meta"></div></div></div>
+      <canvas height="28"></canvas>
+      <div class="match"></div>
+      <div class="cell-switch"></div>
+      <div class="cell-delete"></div>`;
+    row.querySelector(".swatch").style.background = colorFor(v.id);
+    const nameBox = row.querySelector(".who-name");
+    if (me) {
+      nameBox.textContent = "Din röst";
+      const tag = document.createElement("span"); tag.className = "tag"; tag.textContent = "Profil"; nameBox.appendChild(tag);
+    } else {
+      nameBox.appendChild(nameField(v));
+    }
+    const status = () => (v.recent ? "Hörd i det här mötet" : "Senast hörd " + heardLabel(v.lastHeard));
+    row.querySelector(".who-meta").textContent = me ? "Släpps alltid igenom" : (v.named ? status() : "Ny röst, ge den ett namn");
+    row.querySelector(".match").textContent = !me && v.score != null ? Math.round(v.score * 100) + " %" : "";
+    if (!me) {
+      const sw = document.createElement("button");
+      sw.className = "switch"; sw.setAttribute("role", "switch");
+      setChecked(sw, v.heard);
+      sw.setAttribute("aria-label", v.name + " hörs i mötet");
+      sw.addEventListener("click", () => {
+        const heard = !v.heard;
+        // Letting someone through means little while every other voice is muted.
+        const leaveOnlyMe = heard && ui.mode() === "me"
+          ? ui.setMode("noise").then(() => toast("Läget är nu Dämpa bakgrundsljud, så att " + v.name + " hörs"))
+          : Promise.resolve();
+        apply(leaveOnlyMe.then(() => invoke("set_voice_default", { id: v.id, policy: heard ? "pass" : "mute" })));
+      });
+      row.querySelector(".cell-switch").appendChild(sw);
+      row.querySelector(".cell-delete").appendChild(deleteButton(v));
+    }
+    const lane = lanes.get(v.id) || { hist: new Array(LANE_HISTORY).fill(0) };
+    Object.assign(lane, { canvas: row.querySelector("canvas"), on: me || v.heard, color: colorFor(v.id) });
+    lanes.set(v.id, lane);
+    return row;
+  }
+
+  function renderVoices() {
+    const show = view.enrolled && !view.enrollment;
+    $("#voicePanel").hidden = !show;
+    $("#voicesPrivacy").hidden = !show;
+    pressSeg($("#unknownSeg"), "u", view.unknown);
+    const list = $("#voiceList"); list.textContent = "";
+    if (!show) return;
+    list.appendChild(voiceRow({ id: "me", name: "Din röst" }));
+    view.voices.forEach((v) => list.appendChild(voiceRow(v)));
+    $("#voicesEmpty").hidden = view.voices.length > 0;
+    const ids = new Set(["me", ...view.voices.map((v) => v.id)]);
+    for (const id of lanes.keys()) if (!ids.has(id)) lanes.delete(id);
+    ui.resizeCanvases();
   }
 
   function render(v) {
@@ -165,13 +169,15 @@
     $("#voicesError").hidden = !v.error;
     $("#voicesErrorText").textContent = v.error || "";
     renderEnrollment();
+    renderOnlyMe();
     if (editing) return;
-    renderSession();
-    renderLibrary();
+    renderVoices();
   }
 
   // Controls
   seg($("#unknownSeg"), (b) => apply(invoke("set_unknown_policy", { policy: b.dataset.u })));
+  $("#leaveOnlyMe").addEventListener("click", () => ui.setMode("noise").catch(fail));
+  document.addEventListener("hush:mode", renderOnlyMe);
   const startEnrollment = () => apply(invoke("start_enrollment"));
   $("#enroll").addEventListener("click", startEnrollment);
   $("#enrollStart").addEventListener("click", startEnrollment);

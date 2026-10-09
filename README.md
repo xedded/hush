@@ -60,15 +60,25 @@ bearbetningen. Fördröjning och processorlast visas uppe till höger.
 **Brusreducering** anger hur mycket bakgrundsljud som tas bort, upp till 45 dB. Höga värden
 kan göra rösten något torrare.
 
-**Känslighet för omgivning** är röstgrindens tröskel. Ljud under tröskeln släpps inte igenom.
-Höj den om röster längre bort i rummet hörs, sänk den om början eller slutet av dina ord
-försvinner.
+**Röstgrind** stänger mikrofonen när ingen pratar nära den. Flytta reglaget åt höger (Bara nära
+ljud) om röster längre bort i rummet hörs, åt vänster (Släpper in mer) om början eller slutet av
+dina ord försvinner. Enklast är **Kalibrera**: var tyst i 3 sekunder medan Hush lyssnar på rummet,
+prata sedan som vanligt i 5 sekunder. Hush lägger tröskeln strax under din röst och över
+bakgrundsljudet. Röstgrinden sparas för varje mikrofon, så den följer med när du byter mellan
+headset och datorns mikrofon.
 
-**Hush aktiv** i sidomenyn pausar all bearbetning. Mikrofonljudet går då obehandlat till mötet.
-**Stäng av mikrofon** tystar helt. Snabbkommandot är Ctrl Alt M (Windows) eller ⌃⌥M (macOS)
-och fungerar även när mötesprogrammet är i fokus. Hush startar alltid med mikrofonen på.
+Sidomenyn har tre knappar som fungerar från alla sidor:
 
-Använder du en Bluetooth-mikrofon visar Hush en varning. Bluetooth-headset växlar till
+- **Hush aktiv** pausar all bearbetning. Mikrofonljudet går då obehandlat till mötet.
+- **Stäng av mikrofon** tystar helt. Snabbkommandot är Ctrl Alt M (Windows) eller ⌃⌥M (macOS)
+  och fungerar även när mötesprogrammet är i fokus. Hush startar alltid med mikrofonen på.
+- **Lyssna på dig själv** spelar upp exakt det mötet hör i datorns standardutgång, så att du kan
+  höra brusreducering, röstförbättring och röstfilter. Använd hörlurar, annars når ljudet
+  mikrofonen igen och det blir rundgång. Är standardutgången VB-CABLE vägrar Hush, eftersom ljudet
+  då skulle gå rakt tillbaka in i mötet. Lyssningen stängs av när du minimerar Hush eller byter
+  mikrofon.
+
+Använder du en Bluetooth-mikrofon visar Hush en varning (den kan stängas av under Inställningar). Bluetooth-headset växlar till
 telefonkvalitet så fort mikrofonen används, både för det du säger och det du hör. Datorns
 inbyggda mikrofon eller headsetets USB-dongel ger bättre ljud.
 
@@ -128,32 +138,54 @@ Så spelar du in den:
 3. Läs texten högt i normal samtalston, i den miljö du brukar sitta i, tills mätaren är full.
    Det tar cirka 30 sekunder tal. Pauser räknas inte.
 
-Därefter gäller följande:
+Därefter visar sidan en lista med alla röster Hush känner till:
 
-- **Din röst** känns alltid igen först och släpps alltid igenom.
-- **Det här mötet** visar rösterna Hush har hört nyligen, med en tidslinje för när var och en
-  pratade. En ny röst dyker upp när någon har pratat i ungefär 2 sekunder. En röst som inte
-  har hörts på 15 minuter försvinner ur listan, men finns kvar i biblioteket.
-- Varje röst har ett reglage. Stäng av en röst för att hålla den utanför mikrofonen.
-- **Okända röster** styr tal som Hush ännu inte har känt igen: **Stäng av** (standard) eller
-  **Släpp igenom**. Har du själv pratat den senaste minuten släpps okänt tal igenom i början av
-  en mening, så att början av dina egna meningar aldrig klipps.
-- Läget **Bara min röst** stänger av alla röster utom din, oavsett reglagen.
-
-**Röstbiblioteket** sparar röster mellan möten, så att en kollega känns igen nästa gång.
-
-- Nya röster heter Röst 2, Röst 3 och så vidare. Byt namn med pennan bredvid namnet.
-- Varje röst har ett standardval, **Hörs** eller **Tystas**, som gäller direkt när den känns
-  igen i nästa möte. En ny röst får samma val som Okända röster.
+- **Din röst** står först, känns alltid igen först och släpps alltid igenom. Profilen finslipas
+  försiktigt med tiden när Hush är helt säker på att det är du, så att den följer med till nya
+  headset och rum. Den kan aldrig glida långt från din inspelning, och spelar du in en ny profil
+  börjar den om.
+- Varje annan röst har **ett reglage: Hörs**. Av betyder att rösten hålls utanför mikrofonen.
+  Valet gäller direkt och sparas, så det gäller också nästa gång rösten känns igen.
+- Röster som har hörts de senaste 15 minuterna står överst, med en aktivitetslinje för de senaste
+  20 sekunderna och hur säkert Hush känner igen dem (Träff). Övriga visar när de senast hördes.
+- En ny röst dyker upp när någon har pratat i ungefär 2 sekunder. Den heter Röst 2, Röst 3 och så
+  vidare tills du byter namn med pennan bredvid namnet.
+- **Okända röster** längst ner styr tal som Hush ännu inte har känt igen: **Stäng av** (standard)
+  eller **Släpp igenom**. Nya röster får samma val. Har du själv pratat den senaste minuten släpps
+  okänt tal igenom tills det är identifierat, så att början av dina egna meningar aldrig klipps.
+- I läget **Bara min röst** tystas alla röster utom din, oavsett reglagen. Sidan visar det, med
+  en knapp för att byta tillbaka. Slår du på en röst i det läget byter Hush till Dämpa
+  bakgrundsljud.
 - Röster tas aldrig bort automatiskt. Ta bort en röst med papperskorgen och bekräfta med ett
   klick till.
-- Biblioteket sparas krypterat (AES-256-GCM) på datorn. Nyckeln ligger i systemets nyckelring
-  (Windows Autentiseringshanteraren eller macOS Nyckelringar). Röstavtrycken lämnar aldrig
-  datorn.
 
-Hush känner inte till möten. Så länge Hush är på lyssnar den hela tiden, och röster som hörs
-utanför möten, till exempel en kollega i kontorslandskapet eller en TV, kan också hamna i
-biblioteket. Pausa Hush med **Hush aktiv** när du inte sitter i möte om du vill undvika det.
+Rösterna sparas krypterat (AES-256-GCM) på datorn. Nyckeln ligger i systemets nyckelring
+(Windows Autentiseringshanteraren eller macOS Nyckelringar). Röstavtrycken lämnar aldrig datorn
+och finns kvar när Hush uppdateras.
+
+Hush lyssnar efter röster i lägena Dämpa bakgrundsljud och Bara min röst, även när andra röster
+är avstängda. Igenkänningen sker innan någon tystas, så nya röster hamnar i listan även om de
+aldrig hörs i mötet. Hush känner inte heller till möten: röster som hörs utanför möten, till
+exempel en kollega i kontorslandskapet eller en TV, kan också hamna i listan. Pausa Hush med
+**Hush aktiv** när du inte sitter i möte om du vill undvika det.
+
+## Statistik
+
+Sidan **Statistik** visar vem som har pratat mest, hur länge och hur starkt, räknat från
+röstbiblioteket.
+
+- Överst: total taltid, vem som pratar mest, vilken röst som är starkast och vem som har de
+  längsta inläggen i snitt.
+- En rad per röst, inklusive din egen: andel av taltiden, taltid, medelnivå, starkaste nivå,
+  antal inlägg och genomsnittlig längd, och ett diagram över de senaste 14 dagarna. Sortera efter
+  taltid, nivå eller antal inlägg.
+- Bara tal som Hush har känt igen räknas, från ögonblicket rösten känns igen. Statistiken samlas
+  därför bara in när röstprofilen är inspelad och Hush är i läget Dämpa bakgrundsljud eller Bara
+  min röst. Den började räknas i version 0.5.0.
+- Nivån visar hur starkt rösten når din mikrofon. Den beror mest på hur nära personen sitter, inte
+  på hur högt hen faktiskt pratar.
+- Dagarna sparas i 90 dagar, totalerna tills du nollställer med **Nollställ statistiken**.
+  Statistiken sparas krypterad i röstbiblioteket, liksom röstavtrycken.
 
 ## Röstfilter
 
@@ -168,21 +200,28 @@ och påverkar bara den röst som släpps igenom.
   lätt distorsion, som en liten högtalare).
 - **Förval**: Filmtrailer, Rymdskurk, Sportkommentator, Robot, Troll, Radio 1985 och Helium.
   Förvalen ställer alla reglage på en gång. Drar du i ett reglage slås filtret på.
+  **Återställ** stänger av filtret och nollar reglagen.
 
 Filtret lägger till cirka 21 ms fördröjning medan det är på. Det är alltid avslaget när Hush
 startar, så att du inte råkar börja ett möte med fel röst. Inställningarna finns kvar. Stora
 ändringar, som Troll och Helium, låter lite metalliskt. Det är normalt för den här tekniken i
 realtid.
 
-**Lyssna på dig själv** spelar upp exakt det mötet hör, i datorns standardutgång. Använd
-hörlurar, annars når ljudet mikrofonen igen och det blir rundgång. Är standardutgången
-VB-CABLE vägrar Hush, eftersom ljudet då skulle gå rakt tillbaka in i mötet. Lyssningen stängs
-av när du byter sida, minimerar Hush eller byter mikrofon.
+Lyssna på resultatet med **Lyssna på dig själv** i sidomenyn.
 
 ## Inställningar och uppdateringar
 
-Under **Inställningar** väljer du tema (System, Ljust eller Mörkt) och ser versionen. Reglagen
-för autostart, Bluetooth-varning och grafikkort fungerar inte ännu.
+Under **Inställningar**:
+
+- **Starta med Windows** (Starta vid inloggning på macOS): Hush startar dold i aktivitetsfältet
+  när du loggar in, så att den alltid är redo inför ett möte.
+- **Stänga fönstret**: Hush fortsätter i aktivitetsfältet. Avsluta helt via ikonen där.
+- **Varna för Bluetooth-mikrofon**: visar eller döljer varningen på sidan Ljud.
+- **Felsökningslogg**: **Visa loggfiler** öppnar mappen där Hush skriver vad som händer (start,
+  mikrofonbyten, fel). Skicka filen om något krånglar. Loggen innehåller inget ljud och inga
+  röstavtryck.
+- **Tema**: System, Ljust eller Mörkt.
+- **Version** och **Sök efter uppdatering**.
 
 Hush uppdaterar sig själv. Den söker efter nya versioner strax efter start och sedan var
 sjätte timme. Du kan också söka direkt med **Sök efter uppdatering**. När en ny version finns
@@ -192,7 +231,7 @@ installerar. Windows frågar efter administratörsbehörighet.
 ## Integritet
 
 - Allt ljud bearbetas på datorn. Inget ljud lämnar den och inget ljud sparas.
-- Röstigenkänningen sparar bara röstavtryck, krypterade, i röstbiblioteket.
+- Röstigenkänningen sparar bara röstavtryck och statistik, krypterade, i röstbiblioteket.
 - Hush ansluter bara till internet för att söka efter och ladda ner uppdateringar från GitHub.
 
 ## Utveckling

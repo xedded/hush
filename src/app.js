@@ -124,6 +124,7 @@
   function renderMode() {
     pressSeg($("#modeSeg"), "mode", ui.mode);
     $("#meHint").hidden = ui.mode !== "me" || enrolled;
+    document.dispatchEvent(new CustomEvent("hush:mode", { detail: ui.mode }));
   }
 
   const SETUP = {
@@ -182,7 +183,8 @@
     if (s.selectedInput && s.inputs.some((d) => d.id === s.selectedInput)) sel.value = s.selectedInput;
 
     const current = s.inputs.find((d) => d.id === sel.value);
-    $("#btHint").hidden = !((current && current.bluetooth) || (s.engine && s.engine.bluetoothQuality));
+    const bluetooth = (current && current.bluetooth) || (s.engine && s.engine.bluetoothQuality);
+    $("#btHint").hidden = !bluetooth || !btWarn;
 
     renderSetup(s.virtualMic);
     // The setup panel already explains a missing VB-CABLE.
@@ -227,6 +229,33 @@
     applyTheme(b.dataset.t);
     try { localStorage.setItem(THEME_KEY, b.dataset.t); } catch (_) { /* storage unavailable */ }
   });
+  // Bluetooth warning: a per-computer preference, kept with the theme.
+  const BT_KEY = "hush.btWarn";
+  let btWarn = true;
+  try { btWarn = localStorage.getItem(BT_KEY) !== "off"; } catch (_) { /* storage unavailable */ }
+  setChecked($("#btWarn"), btWarn);
+  $("#btWarn").addEventListener("change", (e) => {
+    btWarn = checked(e.target);
+    try { localStorage.setItem(BT_KEY, btWarn ? "on" : "off"); } catch (_) { /* storage unavailable */ }
+    if (ui) render(ui);
+  });
+
+  // Start at login, in the tray.
+  if (isMac) {
+    $("#autostartLabel").textContent = "Starta vid inloggning";
+    $("#autostartText").textContent = "Hush startar dold i menyraden när du loggar in, så att den alltid är redo inför ett möte.";
+    $("#trayText").textContent = "Hush fortsätter i menyraden när du stänger fönstret. Avsluta helt via ikonen där.";
+  }
+  invoke("get_autostart").then((on) => setChecked($("#autostart"), on)).catch(() => {});
+  $("#autostart").addEventListener("change", (e) => {
+    const sw = e.target;
+    invoke("set_autostart", { value: checked(sw) })
+      .then((on) => setChecked(sw, on))
+      .catch((err) => { setChecked(sw, !checked(sw)); fail(err); });
+  });
+
+  $("#openLogs").addEventListener("click", () => invoke("open_log_folder").catch(fail));
+
   tauri.app.getVersion().then((v) => ($("#version").textContent = "Hush " + v)).catch(() => {});
 
 
@@ -302,8 +331,12 @@
     requestAnimationFrame(frame);
   }
 
-  // Shared with voices.js.
+  // Shared with the other views.
   Object.assign(window.HushUI, {
+    /** Show a gate value set elsewhere (calibration) without sending it back. */
+    showGate(v) { if (ui) ui.gateDbfs = v; setGate(Math.round(v)); },
+    /** Name of the microphone in use, for messages. */
+    inputName: () => (ui && ui.engine ? ui.engine.inputName : "mikrofonen"),
     fit,
     resizeCanvases,
     setEnrolled(v) { enrolled = v; if (ui) renderMode(); },

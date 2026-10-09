@@ -3,6 +3,7 @@
 //! them. Stored encrypted (AES-256-GCM) with the key in the OS keychain, so
 //! the file is useless if copied off the machine.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
@@ -18,12 +19,57 @@ const NONCE_LEN: usize = 12;
 pub const MAX_NAME_LEN: usize = 40;
 /// Running-mean weight cap: older speech keeps counting, new speech still adapts the print.
 const MAX_PRINT_WEIGHT: u32 = 60;
+/// The user's own print adapts far more slowly: muting the user by mistake is
+/// the worst failure, so one odd day must not move it much.
+const MAX_ME_WEIGHT: u32 = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Policy {
     Pass,
     Mute,
+}
+
+/// Days of talk time kept per voice for the statistics page.
+const STATS_DAYS: usize = 90;
+
+/// How much and how loudly a voice has been heard. Counted only while the
+/// voice is recognised, so speech before identification is not included.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Stats {
+    /// Seconds of recognised speech.
+    pub seconds: f64,
+    /// Sum of mean-square level times seconds, for the average level.
+    pub energy: f64,
+    /// Loudest 200 ms, in dBFS.
+    pub peak_db: Option<f32>,
+    /// Times the voice started speaking (turns).
+    pub turns: u32,
+    /// Seconds per local date (YYYY-MM-DD), the last STATS_DAYS days with speech.
+    pub days: BTreeMap<String, f32>,
+    pub first_heard: Option<String>,
+}
+
+impl Stats {
+    pub fn add(&mut self, seconds: f64, energy: f64, peak_db: Option<f32>, today: &str) {
+        self.seconds += seconds;
+        self.energy += energy;
+        if let Some(p) = peak_db {
+            self.peak_db = Some(self.peak_db.map_or(p, |q| q.max(p)));
+        }
+        *self.days.entry(today.to_string()).or_default() += seconds as f32;
+        while self.days.len() > STATS_DAYS {
+            let oldest = self.days.keys().next().cloned().expect("not empty");
+            self.days.remove(&oldest);
+        }
+        self.first_heard.get_or_insert_with(|| today.to_string());
+    }
+
+    /// Average speech level in dBFS.
+    pub fn mean_db(&self) -> Option<f32> {
+        (self.seconds > 0.5).then(|| (10.0 * (self.energy / self.seconds).max(1e-12).log10()) as f32)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -39,16 +85,26 @@ pub struct Voice {
     pub weight: u32,
     /// Local date, YYYY-MM-DD.
     pub last_heard: String,
+    #[serde(default)]
+    pub stats: Stats,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Library {
     pub me: Option<Vec<f32>>,
+    /// The print from the recording. Adaptation never strays far from it.
+    pub me_anchor: Option<Vec<f32>>,
+    /// How many embeddings the user's print averages.
+    pub me_weight: u32,
     pub voices: Vec<Voice>,
     /// Counter for "Röst N" names; never reused, so a deleted number does not come back.
     pub next_number: u32,
     pub unknown: Option<Policy>,
+    pub me_stats: Stats,
+    /// Bumped on every change worth saving; not stored.
+    #[serde(skip)]
+    pub changes: u64,
 }
 
 impl Library {
@@ -77,8 +133,35 @@ impl Library {
             print,
             weight: weight.min(MAX_PRINT_WEIGHT),
             last_heard: today.to_string(),
+            stats: Stats::default(),
         });
+        self.changes += 1;
         id
+    }
+
+    /// A freshly recorded profile replaces the old one, adaptation included.
+    pub fn set_me(&mut self, print: Vec<f32>, weight: u32) {
+        self.me_anchor = Some(print.clone());
+        self.me = Some(print);
+        self.me_weight = weight.clamp(1, MAX_ME_WEIGHT);
+    }
+
+    /// Fold a confident embedding of the user into their print, so the profile
+    /// follows new headsets and rooms. Profiles from before adaptation existed
+    /// take their current print as the anchor.
+    pub fn reinforce_me(&mut self, embedding: &[f32]) {
+        let Some(me) = self.me.as_mut() else { return };
+        if self.me_anchor.is_none() {
+            self.me_anchor = Some(me.clone());
+            self.me_weight = MAX_ME_WEIGHT / 4;
+        }
+        let w = self.me_weight.max(1) as f32;
+        for (p, e) in me.iter_mut().zip(embedding) {
+            *p = (*p * w + e) / (w + 1.0);
+        }
+        embedder::normalize(me);
+        self.me_weight = (self.me_weight + 1).min(MAX_ME_WEIGHT);
+        self.changes += 1;
     }
 
     /// Fold a confident new embedding into a voice's print.
@@ -91,12 +174,28 @@ impl Library {
         embedder::normalize(&mut v.print);
         v.weight = (v.weight + 1).min(MAX_PRINT_WEIGHT);
         v.last_heard = today.to_string();
+        self.changes += 1;
     }
 
     pub fn touch(&mut self, id: &str, today: &str) {
         if let Some(v) = self.voice_mut(id) {
             v.last_heard = today.to_string();
         }
+    }
+
+    /// Stats for "me" or a voice id.
+    pub fn stats_mut(&mut self, who: &str) -> Option<&mut Stats> {
+        if who == "me" {
+            return Some(&mut self.me_stats);
+        }
+        self.voice_mut(who).map(|v| &mut v.stats)
+    }
+
+    /// Start the statistics over, for everyone.
+    pub fn reset_stats(&mut self) {
+        self.me_stats = Stats::default();
+        self.voices.iter_mut().for_each(|v| v.stats = Stats::default());
+        self.changes += 1;
     }
 
     pub fn rename(&mut self, id: &str, name: &str) -> Result<()> {
@@ -260,7 +359,8 @@ mod tests {
         store.save(&lib).unwrap();
         let raw = std::fs::read(dir.join("voices.bin")).unwrap();
         assert!(!String::from_utf8_lossy(&raw).contains("Röst"), "file must not be plain text");
-        assert_eq!(store.load().unwrap(), lib);
+        // The change counter lives only in memory.
+        assert_eq!(store.load().unwrap(), Library { changes: 0, ..lib });
         let _ = std::fs::remove_dir_all(dir);
     }
 

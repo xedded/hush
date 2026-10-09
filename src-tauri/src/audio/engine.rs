@@ -356,6 +356,7 @@ fn process_loop(mut r: Running, ctx: Shared, stop: &AtomicBool, failure: &Arc<Mu
                     enhanced.copy_from_slice(frame);
                 }
                 gate.process(&mut enhanced, params.gate_dbfs());
+                telemetry.levels.record(gate.level_db());
                 if let Some(link) = speaker {
                     link.send(Hop { samples: downsample_48k(&enhanced), speech: gate.is_open() });
                     let target = if link.allow() { 1.0 } else { SPEAKER_FLOOR };

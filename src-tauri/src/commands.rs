@@ -57,6 +57,23 @@ pub async fn set_gate(state: AppStateRef<'_>, value: f32) -> Result<(), String> 
     Ok(())
 }
 
+/// One calibration phase: the gate detector's level every 10 ms for `seconds`.
+#[tauri::command]
+pub async fn measure_levels(state: AppStateRef<'_>, seconds: f32) -> Result<Vec<f32>, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || state.measure_levels(seconds))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Set the voice gate from a quiet phase and a speaking phase; returns the new threshold.
+#[tauri::command]
+pub async fn apply_gate_calibration(state: AppStateRef<'_>, quiet: Vec<f32>, speech: Vec<f32>) -> Result<f32, String> {
+    let threshold = crate::audio::calibrate::suggest(&quiet, &speech)?;
+    log::info!("voice gate calibrated to {threshold} dBFS");
+    Ok(state.set_gate(threshold))
+}
+
 #[tauri::command]
 pub async fn set_muted(app: AppHandle, state: AppStateRef<'_>, value: bool) -> Result<(), String> {
     state.set_muted(value);
@@ -82,8 +99,39 @@ pub async fn set_monitor(state: AppStateRef<'_>, value: bool) -> Result<(), Stri
     state.set_monitor(value)
 }
 
+/// Show the log folder in Explorer or Finder, for sending a log when something goes wrong.
 #[tauri::command]
-pub async fn open_vbcable_page()-> Result<(), String> {
+pub async fn open_log_folder(app: AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let dir = app.path().app_log_dir().map_err(|e| e.to_string())?;
+    let opener = if cfg!(target_os = "macos") { "open" } else if cfg!(windows) { "explorer" } else { "xdg-open" };
+    std::process::Command::new(opener).arg(&dir).spawn().map(|_| ()).map_err(|e| {
+        log::warn!("could not open {}: {e}", dir.display());
+        "Loggmappen kunde inte öppnas.".to_string()
+    })
+}
+
+#[tauri::command]
+pub async fn get_autostart(app: AppHandle) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+/// Start Hush in the tray when the user logs in.
+#[tauri::command]
+pub async fn set_autostart(app: AppHandle, value: bool) -> Result<bool, String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let launcher = app.autolaunch();
+    let result = if value { launcher.enable() } else { launcher.disable() };
+    result.map_err(|e| {
+        log::warn!("autostart: {e}");
+        "Autostart kunde inte ändras.".to_string()
+    })?;
+    launcher.is_enabled().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn open_vbcable_page() -> Result<(), String> {
     crate::virtual_mic::open_download_page().map_err(|_| "Webbläsaren kunde inte öppnas.".to_string())
 }
 
@@ -110,11 +158,6 @@ fn voice_result(state: &AppState, r: anyhow::Result<()>) -> Result<VoicesView, S
 #[tauri::command]
 pub async fn get_voices(state: AppStateRef<'_>) -> Result<VoicesView, String> {
     Ok(state.speakers.view())
-}
-
-#[tauri::command]
-pub async fn set_voice_on(state: AppStateRef<'_>, id: String, on: bool) -> Result<VoicesView, String> {
-    voice_result(&state, state.speakers.set_voice_on(&id, on))
 }
 
 #[tauri::command]
@@ -151,4 +194,17 @@ pub async fn start_enrollment(state: AppStateRef<'_>) -> Result<VoicesView, Stri
 pub async fn cancel_enrollment(state: AppStateRef<'_>) -> Result<VoicesView, String> {
     state.speakers.cancel_enrollment();
     Ok(state.speakers.view())
+}
+
+// ---------- Statistics ----------
+
+#[tauri::command]
+pub async fn get_stats(state: AppStateRef<'_>) -> Result<crate::speaker::stats::StatsView, String> {
+    Ok(state.speakers.stats())
+}
+
+#[tauri::command]
+pub async fn reset_stats(state: AppStateRef<'_>) -> Result<crate::speaker::stats::StatsView, String> {
+    state.speakers.reset_stats().map_err(|e| e.to_string())?;
+    Ok(state.speakers.stats())
 }

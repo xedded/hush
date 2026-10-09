@@ -29,6 +29,9 @@
       <button data-view="voices">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="5.5" r="2.5"/><path d="M1.5 14c.4-2.6 2.2-4 4.5-4s4.1 1.4 4.5 4"/><path d="M11 3.2a2.5 2.5 0 010 4.6M12.5 10.3c1.2.6 1.9 1.9 2 3.7" stroke-linecap="round"/></svg>Röster
       </button>
+      <button data-view="stats">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 14h12M4 11V8M7 11V4M10 11V6M13 11V2.5"/></svg>Statistik
+      </button>
       <button data-view="fx">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M1.5 8c1.5-4 3-4 4.5 0s3 4 4.5 0 3-4 4 0"/></svg>Röstfilter
       </button>
@@ -39,6 +42,7 @@
       <div class="master">
         <div class="row"><span>Hush aktiv</span><button class="switch" id="masterSwitch" role="switch" aria-checked="true" aria-label="Hush aktiv"></button></div>
         <button class="row mute-row" id="muteRow" aria-pressed="false"><span id="muteLabel">Stäng av mikrofon</span><span class="kbd">Ctrl Alt M</span></button>
+        <button class="row mute-row" id="listen" aria-pressed="false" title="Spelar upp det mötet hör. Använd hörlurar."><span id="listenLabel">Lyssna på dig själv</span><span class="kbd">Med hörlurar</span></button>
       </div>
     </nav>
 
@@ -52,7 +56,7 @@
         <div class="page-head">
           <div>
             <h1>Ljud</h1>
-            <p class="sub">Välj mikrofon och hur hårt bakgrundsljud ska dämpas. Välj <span class="mic-name">Hush Microphone</span> som mikrofon i Teams, Zoom eller Slack.</p>
+            <p class="sub">Välj mikrofon och hur ljudet ska bearbetas. Välj <span class="mic-name">Hush Microphone</span> som mikrofon i Teams, Zoom eller Slack.</p>
           </div>
           <div class="stats"><span>Fördröjning <b id="latency">-</b></span><span>CPU <b id="cpu">-</b></span></div>
         </div>
@@ -110,10 +114,15 @@
             <p>Hur mycket fläktar, tangentbord och sorl dämpas. Högre värden kan göra rösten något torrare.</p>
           </div>
           <div class="panel ctl">
-            <div class="ctl-head"><strong>Känslighet för omgivning</strong><output id="gateOut">-42 dBFS</output></div>
-            <input type="range" id="gate" min="-60" max="-20" value="-42" aria-label="Tröskel för röstgrind">
-            <div class="scale"><span>-60</span><span>-20</span></div>
-            <p>Ljud under tröskeln släpps inte igenom. Höj den om röster längre bort i rummet hörs.</p>
+            <div class="ctl-head"><strong>Röstgrind</strong><span class="ctl-tools"><button class="btn mini" id="calibrate">Kalibrera</button><output id="gateOut">-42 dBFS</output></span></div>
+            <input type="range" id="gate" min="-60" max="-20" value="-42" aria-label="Röstgrindens tröskel">
+            <div class="scale"><span>Släpper in mer</span><span>Bara nära ljud</span></div>
+            <p id="gateHelp">Stänger mikrofonen när ingen pratar nära den. Flytta åt höger om röster längre bort i rummet hörs, åt vänster om början eller slutet av dina ord försvinner. Sparas för varje mikrofon.</p>
+            <div class="calib" id="calib" hidden>
+              <div class="calib-head"><strong id="calibStep"></strong><button class="btn mini" id="calibCancel">Avbryt</button></div>
+              <p id="calibText"></p>
+              <div class="progress"><i id="calibBar"></i></div>
+            </div>
           </div>
         </div>
 
@@ -141,7 +150,7 @@
         <div class="page-head">
           <div>
             <h1>Röster</h1>
-            <p class="sub">Röster som Hush har hört i det här mötet. Stäng av en röst för att hålla den utanför mikrofonen.</p>
+            <p class="sub">Hush känner igen rösterna i rummet. Välj vilka som hörs i mötet. Valet gäller direkt och sparas till nästa gång rösten känns igen.</p>
           </div>
           <button class="btn" id="enroll" hidden>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5"/><path d="M3 8a5 5 0 0010 0M8 13v1.8" stroke-linecap="round"/></svg>
@@ -154,7 +163,7 @@
         <div class="panel setup" id="enrollIntro" hidden>
           <div class="setup-text">
             <strong>Spela in din röstprofil</strong>
-            <p>Hush behöver ungefär 30 sekunder av din röst för att kunna skilja den från andras. Röstprofilen sparas krypterat på den här datorn.</p>
+            <p>Röstigenkänningen startar när Hush vet hur du låter. Det tar ungefär 30 sekunder tal. Utan profil släpps alla röster igenom. Röstprofilen sparas krypterat på den här datorn.</p>
           </div>
           <button class="btn primary" id="enrollStart">Spela in</button>
         </div>
@@ -172,10 +181,15 @@
           </div>
         </div>
 
-        <div class="panel" id="sessionPanel" hidden>
+        <div class="notice" id="onlyMeNote" hidden>
+          <span>Läget Bara min röst är på. Alla röster utom din tystas, oavsett valen nedan.</span>
+          <button class="btn mini" id="leaveOnlyMe">Byt till Dämpa bakgrundsljud</button>
+        </div>
+
+        <div class="panel" id="voicePanel" hidden>
+          <div class="voice head" aria-hidden="true"><span>Röst</span><span>Senaste 20 sekunderna</span><span>Träff</span><span>Hörs</span><span></span></div>
           <div class="voices" id="voiceList"></div>
-          <div class="list-row" id="sessionEmpty" hidden><div style="color:var(--muted)">Ingen annan har pratat i det här mötet än.</div></div>
-          <div class="timescale"><div><span>-20 s</span><span>-10 s</span><span>nu</span></div></div>
+          <div class="list-row" id="voicesEmpty" hidden><div style="color:var(--muted)">Inga andra röster än. När någon annan pratar i ett par sekunder dyker rösten upp här.</div></div>
           <div class="voices-foot">
             <div style="display:flex;flex-direction:column;gap:8px">
               <div class="label">Okända röster</div>
@@ -184,17 +198,37 @@
                 <button aria-pressed="true" data-u="mute">Stäng av</button>
               </div>
             </div>
-            <p class="sub" style="margin:0;max-width:46ch;font-size:12px">En röst känns igen efter ungefär en halv sekund tal, en helt ny röst efter ett par sekunder. Under tiden gäller valet till vänster, utom precis när du själv har pratat.</p>
+            <p class="sub" style="margin:0;max-width:52ch;font-size:12px">Gäller tal som Hush ännu inte känner igen, och nya röster får samma val. En känd röst känns igen efter ungefär en halv sekund, en ny efter ett par sekunder. Har du själv pratat nyss släpps tal igenom tills det är identifierat, så att början av dina meningar inte klipps.</p>
           </div>
         </div>
+        <p class="sub" id="voicesPrivacy" style="font-size:12px" hidden>Röster tas aldrig bort automatiskt. Hush sparar bara röstavtryck, aldrig ljud, krypterat på den här datorn. Röstavtrycken lämnar aldrig datorn.</p>
+      </section>
 
-        <div class="section">
-          <div class="page-head" style="align-items:end">
-            <div><div class="label">Röstbibliotek</div>
-              <p class="sub" style="font-size:12px">Röster som Hush har hört finns kvar här tills du tar bort dem. De känns igen i nästa möte och får sitt standardval direkt. Röstprofilerna sparas krypterat på den här datorn och lämnar den aldrig.</p></div>
-            <span class="kbd" id="libCount"></span>
+      <!-- Statistik -->
+      <section data-panel="stats" class="section" style="gap:20px" hidden>
+        <div class="page-head">
+          <div>
+            <h1>Statistik</h1>
+            <p class="sub">Vem som har pratat mest, hur länge och hur starkt, räknat från röstbiblioteket. Bara tal som Hush har känt igen räknas.</p>
           </div>
-          <div class="panel list" id="library"></div>
+          <button class="btn" id="resetStats">Nollställ statistiken</button>
+        </div>
+        <div class="panel setup" id="statsEmpty" hidden><div class="setup-text"><strong id="statsEmptyTitle"></strong><p id="statsEmptyText"></p></div></div>
+        <div class="cards" id="statCards"></div>
+        <div class="section" id="statsTable">
+          <div class="label-row">
+            <div class="label">Röster</div>
+            <div class="seg" id="statsSort" role="group" aria-label="Sortera efter">
+              <button aria-pressed="true" data-sort="seconds">Taltid</button>
+              <button aria-pressed="false" data-sort="level">Nivå</button>
+              <button aria-pressed="false" data-sort="turns">Inlägg</button>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="stat-row head" aria-hidden="true"><span>Röst</span><span>Andel av taltiden</span><span>Taltid</span><span>Medelnivå</span><span>Starkast</span><span>Inlägg</span><span>14 dagar</span></div>
+            <div id="statRows"></div>
+          </div>
+          <p class="sub" id="statsNote" style="font-size:12px"></p>
         </div>
       </section>
 
@@ -203,7 +237,7 @@
         <div class="page-head">
           <div>
             <h1>Röstfilter</h1>
-            <p class="sub">Ändra hur du låter. Filtret läggs på efter brusreduceringen och påverkar bara din egen röst. Det lägger till ungefär 21 ms fördröjning medan det är på.</p>
+            <p class="sub">Ändra hur du låter. Filtret läggs på sist och påverkar bara rösten som släpps igenom. Det lägger till ungefär 21 ms fördröjning medan det är på och är alltid avslaget när Hush startar.</p>
           </div>
           <div style="display:flex;align-items:center;gap:10px"><span>Filter på</span><button class="switch" id="fxSwitch" role="switch" aria-checked="false" aria-label="Röstfilter på"></button></div>
         </div>
@@ -233,16 +267,9 @@
             <button aria-pressed="false" data-style="radio">Radio</button>
           </div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button class="btn" id="listen" aria-pressed="false">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 10V8a5.5 5.5 0 0111 0v2"/><path d="M2.5 10h2v4h-1a1 1 0 01-1-1v-3zM13.5 10h-2v4h1a1 1 0 001-1v-3z"/></svg>
-            <span id="listenLabel">Lyssna på dig själv</span>
-          </button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
           <button class="btn" id="resetFx">Återställ</button>
-        </div>
-        <div class="hint">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M8 1.8L15 14H1L8 1.8z"/><path d="M8 6.5v3.2M8 11.6v.1" stroke-linecap="round"/></svg>
-          <span>Använd hörlurar när du lyssnar på dig själv. Ljud från högtalarna når mikrofonen och ger rundgång.</span>
+          <span class="sub" style="margin:0;font-size:12px">Hör hur du låter med Lyssna på dig själv i sidomenyn.</span>
         </div>
       </section>
 
@@ -250,10 +277,10 @@
       <section data-panel="settings" class="section" style="gap:20px" hidden>
         <div class="page-head"><div><h1>Inställningar</h1></div></div>
         <div class="panel list">
-          <div class="list-row"><div>Starta med Windows<p>Hush startar i bakgrunden och visas i aktivitetsfältet.</p></div><button class="switch" role="switch" aria-checked="true" aria-label="Starta med Windows"></button></div>
+          <div class="list-row"><div><span id="autostartLabel">Starta med Windows</span><p id="autostartText">Hush startar dold i aktivitetsfältet när du loggar in, så att den alltid är redo inför ett möte.</p></div><button class="switch" id="autostart" role="switch" aria-checked="false" aria-label="Starta automatiskt"></button></div>
+          <div class="list-row"><div>Stänga fönstret<p id="trayText">Hush fortsätter i aktivitetsfältet när du stänger fönstret. Avsluta helt via ikonen där.</p></div></div>
           <div class="list-row"><div>Snabbkommando för att stänga av mikrofonen<p>Fungerar även när mötesprogrammet är i fokus.</p></div><span class="kbd" style="font-size:12px;color:var(--fg)">Ctrl Alt M</span></div>
-          <div class="list-row"><div>Varna för Bluetooth-mikrofon<p>Visar en påminnelse när mikrofonen bara skickar telefonkvalitet.</p></div><button class="switch" role="switch" aria-checked="true" aria-label="Varna för Bluetooth"></button></div>
-          <div class="list-row"><div>Använd grafikkortet<p>NVIDIA GeForce RTX 4050. Krävs för att skilja ut din röst när flera pratar samtidigt.</p></div><button class="switch" role="switch" aria-checked="false" aria-label="Använd grafikkortet"></button></div>
+          <div class="list-row"><div>Varna för Bluetooth-mikrofon<p>Visar en påminnelse på sidan Ljud när mikrofonen bara skickar telefonkvalitet.</p></div><button class="switch" id="btWarn" role="switch" aria-checked="true" aria-label="Varna för Bluetooth-mikrofon"></button></div>
           <div class="list-row"><div>Tema</div>
             <div class="seg" id="themeSeg" role="group" aria-label="Tema">
               <button aria-pressed="true" data-t="system">System</button>
@@ -261,8 +288,9 @@
               <button aria-pressed="false" data-t="dark">Mörkt</button>
             </div>
           </div>
-          <div class="list-row"><div>Tredjepart<p>Brusreducering: DeepFilterNet (MIT/Apache-2.0). Röstigenkänning: WeSpeaker CAM++, tränad på VoxCeleb (CC BY 4.0).</p></div></div>
-          <div class="list-row"><div>Version<p id="version">Hush 0.1.0</p></div><button class="btn" id="checkUpdate">Sök efter uppdatering</button></div>
+          <div class="list-row"><div>Felsökningslogg<p>Hush skriver vad som händer till en loggfil. Skicka den om något krånglar.</p></div><button class="btn" id="openLogs">Visa loggfiler</button></div>
+          <div class="list-row"><div>Version<p id="version">Hush</p></div><button class="btn" id="checkUpdate">Sök efter uppdatering</button></div>
+          <div class="list-row"><div>Tredjepart<p>Brusreducering: DeepFilterNet (MIT/Apache-2.0). Röstigenkänning: WeSpeaker CAM++, tränad på VoxCeleb (CC BY 4.0). Typsnitt: Instrument Sans och IBM Plex Mono (SIL OFL 1.1).</p></div></div>
         </div>
       </section>
     </main>
@@ -273,5 +301,8 @@
 <script src="voices.js"></script>
 <script src="fx.js"></script>
 <script src="enhance.js"></script>
+<script src="monitor.js"></script>
+<script src="calibrate.js"></script>
+<script src="stats.js"></script>
 </body>
 </html>
